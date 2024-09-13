@@ -236,6 +236,7 @@ sfxVol.selectedIndex = 2;
 function drawTile(d, x, y){
   const flip = (d >> 12) & 7;
   d = d & 0xfff;
+  if (d === 2) d = 6;
   const dx = (d & 63) * tileSize;
   const dy = ((d >> 6) & 63) * tileSize;
   switch (flip){
