@@ -1,0 +1,9 @@
+Thumbs.db
+.DS_Store
+.DS_Store?
+*.bak
+*~
+*#
+*.orig
+desktop.ini
+*.swp

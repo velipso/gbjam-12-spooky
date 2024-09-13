@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>GBJam 12 - Spooky</title>
+  <style>
+
+html, body {
+  background-color: #000;
+  font-family: sans-serif;
+  font-size: 18px;
+  line-height: 24px;
+  color: #ffffff;
+  text-align: center;
+}
+
+a {
+  color: #6772a9;
+  text-decoration: none;
+}
+
+a:hover, a:active {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+#cnv {
+  display: block;
+  width: 640px;
+  height: 576px;
+  margin: 16px auto;
+  image-rendering: pixelated;
+  border: 1px solid #3a3277;
+  border-radius: 8px;
+}
+
+#controls {
+  text-align: left;
+  width: 275px;
+  margin: 16px auto;
+  padding: 16px;
+  background-color: #3a3277;
+  border-radius: 8px;
+}
+
+#controls > p {
+  margin: 0 0 8px 0;
+  padding: 0;
+}
+
+#controls > p > strong {
+  display: inline-block;
+  width: 120px;
+}
+
+#fps {
+  color: #3a3277;
+}
+  </style>
+  <script src="./howler.core.min.js"></script>
+</head>
+<body>
+  <canvas id="cnv" width="160" height="144"></canvas>
+  <div id="controls">
+    <p style="font-weight: bold; text-decoration: underline; text-align: center;">Controls</p>
+    <p>
+      <strong>Arrow Keys</strong> Move</br >
+      <strong>Z</strong> Accelerate<br />
+      <strong>X</strong> Jump<br />
+      <strong>Enter</strong> Pause
+    </p>
+    <p style="margin-top: 16px; border-top: 1px solid #6772a9; padding-top: 16px;">
+      <strong>Music</strong><select id="musicVol">
+        <option value="0">Off</option>
+        <option value="0.25">25%</option>
+        <option value="0.5" selected>50%</option>
+        <option value="0.75">75%</option>
+        <option value="1.00">100%</option>
+      </select>
+      <strong>Sfx</strong><select id="sfxVol">
+        <option value="0">Off</option>
+        <option value="0.25">25%</option>
+        <option value="0.5" selected>50%</option>
+        <option value="0.75">75%</option>
+        <option value="1.00">100%</option>
+      </select><br />
+      <strong>Gamepad</strong><select id="enableGamepad">
+        <option value="true">Enable</option>
+        <option value="false">Disable</option>
+      </select>
+    </p>
+  </div>
+  <p id="fps">FPS: ?</p>
+  <p>
+    &copy; Copyright 2024 <a href="https://pulp.biz">Pocket Pulp LLC</a>, 0BSD
+  </p>
+  <script>
+const fps = document.getElementById('fps');
+const cnv = document.getElementById('cnv');
+const ctx = cnv.getContext('2d');
+const input = {
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+  start: false,
+  hitStart: false,
+  jump: false,
+  hitJump: false,
+  second: false,
+  hitSecond: false,
+};
+const keyboard = {
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+  start: false,
+  hitStart: false,
+  jump: false,
+  hitJump: false,
+  second: false,
+  hitSecond: false,
+};
+let enableGamepad = true;
+const gamepad = {
+  jump: false,
+  hitJump: false,
+  second: false,
+  hitSecond: false,
+  start: false,
+  hitStart: false,
+  up: false,
+  right: false,
+  down: false,
+  left: false,
+};
+const gpButton = {
+  jump: 0,
+  second: 1,
+  start: 9,
+  up: 12,
+  right: 15,
+  down: 13,
+  left: 14
+};
+const totalTime = {
+  startNow: 0,
+  startFrames: 0,
+  endNow: 0,
+  endFrames: 0
+};
+let beatGame = false;
+let cameraX = 0;
+let cameraY = 0;
+let cameraState = 'right';
+let worldWidth = 20;
+let worldHeight = 20;
+let world = [
+  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,2,2,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,2,2,2,2,2,2,2,1,1,1,1,1,2,2,2,
+  2,1,1,1,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,2,2,2,1,1,1,1,1,1,1,1,1,1,2,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,1,2,
+  2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,
+  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+];
+class UserEntity {
+  x = 20;
+  y = 20;
+  dx = 0;
+  dy = 0;
+  ddx = 0;
+  ddy = 0.5;
+  mx = 0;
+  my = 0;
+  width = 11;
+  height = 22;
+  air = 0;
+
+  think() {
+    const a = input.second ? 2.5 : 1.8;
+    const f = this.air <= 0 ? 0.5 : 0.2;
+    if (input.left) {
+      this.dx = Math.max(-a, this.dx - f);
+    } else if (input.right) {
+      this.dx = Math.min(a, this.dx + f);
+    } else if (this.dx < 0) {
+      this.dx = Math.min(0, this.dx + f);
+    } else if (this.dx > 0) {
+      this.dx = Math.max(0, this.dx - f);
+    }
+    if (this.dy < 0 && !input.jump) {
+      this.dy++;
+    }
+    if (input.hitJump && this.air <= 5) {
+      this.air = 10;
+      this.dy = -7;
+    }
+  }
+  draw(cx, cy) {
+    const x = Math.floor(this.x) + cx;
+    const y = Math.floor(this.y) + cy;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = this.air <= 5 ? '#0f0' : '#f00';
+    ctx.fillRect(x, y, this.width, this.height);
+  }
+}
+let entities = [new UserEntity()];
+let targetEntity = entities[0];
+const tiles = new Image();
+tiles.src = './tiles.png';
+const tileSize = 11;
+const enableGamepadSel = document.getElementById('enableGamepad');
+enableGamepadSel.selectedIndex = 0;
+enableGamepadSel.addEventListener('input', function(){
+  enableGamepad = this.options[this.selectedIndex].value === 'true';
+});
+const musicVol = document.getElementById('musicVol');
+musicVol.selectedIndex = 2;
+const sfxVol = document.getElementById('sfxVol');
+sfxVol.selectedIndex = 2;
+
+function drawTile(d, x, y){
+  const flip = (d >> 12) & 7;
+  d = d & 0xfff;
+  const dx = (d & 63) * tileSize;
+  const dy = ((d >> 6) & 63) * tileSize;
+  switch (flip){
+    case 0:
+      ctx.setTransform(
+        1, 0,
+        0, 1,
+        x, y
+      );
+      break;
+    case 1:
+      ctx.setTransform(
+        0, 1,
+        1, 0,
+        x, y
+      );
+      break;
+    case 2:
+      ctx.setTransform(
+        1, 0,
+        0, -1,
+        x, y + tileSize
+      );
+      break;
+    case 3:
+      ctx.setTransform(
+        0, -1,
+        1, 0,
+        x, y + tileSize
+      );
+      break;
+    case 4:
+      ctx.setTransform(
+        -1, 0,
+        0, 1,
+        x + 9, y
+      );
+      break;
+    case 5:
+      ctx.setTransform(
+        0, 1,
+        -1, 0,
+        x + tileSize, y
+      );
+      break;
+    case 6:
+      ctx.setTransform(
+        -1, 0,
+        0, -1,
+        x + tileSize, y + tileSize
+      );
+      break;
+    case 7:
+      ctx.setTransform(
+        0, -1,
+        -1, 0,
+        x + tileSize, y + tileSize
+      );
+      break;
+  }
+  ctx.drawImage(tiles, dx, dy, tileSize, tileSize, 0, 0, tileSize, tileSize);
+}
+
+function tickStart() {
+  const btn = (gp, i) =>
+    gp && gp.buttons && gp.buttons.length > i && gp.buttons[i].pressed;
+  const oldGamepad = {
+    jump: gamepad.jump,
+    second: gamepad.second,
+    start: gamepad.start,
+  };
+  gamepad.jump = false;
+  gamepad.second = false;
+  gamepad.start = false;
+  gamepad.up = false;
+  gamepad.down = false;
+  gamepad.left = false;
+  gamepad.right = false;
+  if (enableGamepad) {
+    for (const gp of navigator.getGamepads()){
+      if (btn(gp, gpButton.jump  )){ gamepad.jump   = true; gamepad.hitJump   = !oldGamepad.jump;   }
+      if (btn(gp, gpButton.second)){ gamepad.second = true; gamepad.hitSecond = !oldGamepad.second; }
+      if (btn(gp, gpButton.start )){ gamepad.start  = true; gamepad.hitStart  = !oldGamepad.start;  }
+      if (btn(gp, gpButton.up   )) gamepad.up    = true;
+      if (btn(gp, gpButton.right)) gamepad.right = true;
+      if (btn(gp, gpButton.down )) gamepad.down  = true;
+      if (btn(gp, gpButton.left )) gamepad.left  = true;
+    }
+  } else {
+    gamepad.hitJump = false;
+    gamepad.hitSecond = false;
+    gamepad.hitStart = false;
+  }
+  for (const k of [
+    'jump', 'hitJump', 'second', 'hitSecond', 'start', 'hitStart', 'up', 'down', 'left', 'right'
+  ]) {
+    input[k] = keyboard[k] || gamepad[k];
+  }
+}
+
+function tickEnd() {
+  keyboard.hitStart = false;
+  keyboard.hitJump = false;
+  keyboard.hitSecond = false;
+  redraw();
+}
+
+function isSolid(tx, ty) {
+  if (tx < 0 || tx >= worldWidth || ty < 0 || ty >= worldHeight) {
+    return true;
+  }
+  return world[tx + ty * worldWidth] === 2;
+}
+
+function isRectSolid(x, y, w, h) {
+  const sx = Math.floor(x / tileSize);
+  const sy = Math.floor(y / tileSize);
+  const ex = Math.floor((x + w - 1) / tileSize);
+  const ey = Math.floor((y + h - 1) / tileSize);
+  for (let iy = sy; iy <= ey; iy++) {
+    for (let ix = sx; ix <= ex; ix++) {
+      if (isSolid(ix, iy))
+        return true;
+    }
+  }
+  return false;
+}
+
+function tick() {
+  // think
+  for (const e of entities) {
+    e.think();
+  }
+
+  // physics
+  for (const e of entities) {
+    e.dx = Math.max(-8, Math.min(8, e.dx + e.ddx));
+    e.dy = Math.max(-8, Math.min(8, e.dy + e.ddy));
+    e.mx += e.dx;
+    e.my += e.dy;
+    while (true) {
+      let doneX = false;
+      if (e.mx >= 1) {
+        // can we move 1 pixel right?
+        if (isRectSolid(e.x + 1, e.y, e.width, e.height)) {
+          // hit wall
+          e.mx = 0;
+          e.dx = 0;
+          doneX = true;
+        } else {
+          e.x++;
+          e.mx--;
+        }
+      } else if (e.mx < 0) {
+        // can we move 1 pixel left?
+        if (isRectSolid(e.x - 1, e.y, e.width, e.height)) {
+          // hit wall
+          e.mx = 0;
+          e.dx = 0;
+          doneX = true;
+        } else {
+          e.x--;
+          e.mx++;
+        }
+      } else {
+        doneX = true;
+      }
+
+      let doneY = false;
+      if (e.my >= 1) {
+        // can we move 1 pixel down?
+        if (isRectSolid(e.x, e.y + 1, e.width, e.height)) {
+          // hit ground
+          e.my = 0;
+          e.dy = 0;
+          e.air = 0;
+          doneY = true;
+        } else {
+          e.air++;
+          e.y++;
+          e.my--;
+        }
+      } else if (e.my < 0) {
+        // can we move 1 pixel up?
+        if (isRectSolid(e.x, e.y - 1, e.width, e.height)) {
+          // hit ceiling
+          e.my = 0;
+          e.dy = 0;
+          doneY = true;
+        } else {
+          e.air++;
+          e.y--;
+          e.my++;
+        }
+      } else {
+        doneY = true;
+      }
+
+      if (doneX && doneY) break;
+    }
+  }
+
+  // camera
+  if (targetEntity) {
+    const cx = targetEntity.x + targetEntity.width * 0.5;
+    const cy = targetEntity.y + targetEntity.height * 0.5;
+    cameraX = Math.max(0, Math.min(worldWidth * tileSize - 160, cx - 80));
+    cameraY = Math.max(0, Math.min(worldHeight * tileSize - 144, cy - 72));
+  }
+}
+
+function redraw() {
+  ctx.fillStyle = '#f00';
+  ctx.fillRect(0, 0, 160, 144);
+
+  const xi = Math.floor(-cameraX / tileSize);
+  const xf = Math.floor(-cameraX) - xi * tileSize;
+  const yi = Math.floor(-cameraY / tileSize);
+  const yf = Math.floor(-cameraY) - yi * tileSize;
+  const xMax = Math.ceil(160 / tileSize);
+  const yMax = Math.ceil(144 / tileSize);
+  for (let y = -1; y < yMax; y++) {
+    const wy = y - yi;
+    for (let x = -1; x < xMax; x++) {
+      const wx = x - xi;
+      const k = (
+        wx < 0 || wx >= worldWidth ||
+        wy < 0 || wy >= worldHeight
+      ) ? 0 : world[wx + wy * worldWidth];
+      const k1 = k & 0x7fff;
+      if (k1 > 0)
+        drawTile(k1, x * tileSize + xf, y * tileSize + yf);
+      let k2 = (k >> 15) & 0x7fff;
+      if (k2 > 0) {
+        drawTile(k2, x * tileSize + xf, y * tileSize + yf);
+      }
+    }
+  }
+
+  for (const e of entities) {
+    e.draw(Math.floor(-cameraX), Math.floor(-cameraY));
+  }
+}
+
+function start() {
+  let frameCount = 0;
+  let nextFPS = Date.now() + 1000;
+  let nextFrame = Date.now();
+  function run() {
+    const now = Date.now();
+    let i = 0;
+    while (nextFrame < now) {
+      tickStart();
+      tick();
+      tickEnd();
+      frameCount++;
+      if (now >= nextFPS) {
+        if (beatGame) {
+          fps.innerText =
+            (totalTime.endNow - totalTime.startNow) + ' ms // ' +
+            (totalTime.endFrames - totalTime.startFrames) + ' frames';
+          nextFPS = now + 1000000;
+        } else {
+          fps.innerText = 'FPS: ' + frameCount;
+          frameCount = 0;
+          nextFPS = now + 1000;
+        }
+      }
+      nextFrame += 1000 / 60;
+      i++;
+      if (i >= 4) {
+        // too slow :-(
+        nextFrame = Date.now();
+      }
+    }
+    setTimeout(run, 0);
+  }
+  run();
+}
+
+function onKey(key, down){
+  switch (key) {
+    case 'ArrowUp': keyboard.up = down; return true;
+    case 'ArrowDown': keyboard.down = down; return true;
+    case 'ArrowLeft': keyboard.left = down; return true;
+    case 'ArrowRight': keyboard.right = down; return true;
+    case 'Enter':
+      if (down && !keyboard.start)
+        keyboard.hitStart = true;
+      keyboard.start = down;
+      return true;
+    case 'x':
+      if (down && !keyboard.jump)
+        keyboard.hitJump = true;
+      keyboard.jump = down;
+      return true;
+    case 'z':
+      if (down && !keyboard.second)
+        keyboard.hitSecond = true;
+      keyboard.second = down;
+      return true;
+  }
+  return false;
+}
+
+function onKeyDown(e){
+  if (onKey(e.key, true)) {
+    e.preventDefault();
+    e.stopPropagation();
+    return false;
+  }
+}
+
+function onKeyUp(e){
+  if (onKey(e.key, false)) {
+    e.preventDefault();
+    e.stopPropagation();
+    return false;
+  }
+}
+
+function onBlur(){
+  keyboard.up = false;
+  keyboard.down = false;
+  keyboard.left = false;
+  keyboard.right = false;
+  keyboard.reset = false;
+  keyboard.hitReset = false;
+  keyboard.jump = false;
+  keyboard.hitJump = false;
+  keyboard.grab = false;
+  keyboard.hitGrab = false;
+}
+
+window.addEventListener('keydown', onKeyDown);
+window.addEventListener('keyup', onKeyUp);
+window.addEventListener('blur', onBlur);
+
+// load everything
+Promise.all([
+  new Promise((resolve) => {
+    if (tiles.complete)
+      resolve();
+    else
+      tiles.onload = resolve;
+  }),
+]).then(start);
+
+  </script>
+</body>
+</html>
