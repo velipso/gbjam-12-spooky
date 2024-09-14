@@ -1035,46 +1035,50 @@ Promise.all([
     else
       tiles.onload = resolve;
   }).then(() => {
-    // check that tiles is exactly 4 colors
-    const cnv = document.createElement('canvas');
-    cnv.width = tiles.width;
-    cnv.height = tiles.height;
-    const ctx = cnv.getContext('2d');
-    ctx.clearRect(0, 0, cnv.width, cnv.height);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(tiles, 0, 0);
-    const id = ctx.getImageData(0, 0, cnv.width, cnv.height);
-    const seen = [];
-    const seenAt = [];
-    const hex = (v) => {
-      v = v.toString(16);
-      while (v.length < 2) {
-        v = '0' + v;
+    try {
+      // check that tiles is exactly 4 colors
+      const cnv = document.createElement('canvas');
+      cnv.width = tiles.width;
+      cnv.height = tiles.height;
+      const ctx = cnv.getContext('2d');
+      ctx.clearRect(0, 0, cnv.width, cnv.height);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(tiles, 0, 0);
+      const id = ctx.getImageData(0, 0, cnv.width, cnv.height);
+      const seen = [];
+      const seenAt = [];
+      const hex = (v) => {
+        v = v.toString(16);
+        while (v.length < 2) {
+          v = '0' + v;
+        }
+        return v;
+      };
+      for (let i = 0; i < id.data.length; i += 4) {
+        let c = hex(id.data[i + 0]) + hex(id.data[i + 1]) + hex(id.data[i + 2]);
+        const a = id.data[i + 3];
+        if (a === 0) {
+          c = false;
+        } else if (a !== 255) {
+          c += hex(a);
+        }
+        if (c && !seen.includes(c)) {
+          seen.push(c);
+          const ii = i / 4;
+          const x = ii % cnv.width;
+          const y = Math.floor(ii / cnv.width);
+          seenAt.push([x, y]);
+        }
       }
-      return v;
-    };
-    for (let i = 0; i < id.data.length; i += 4) {
-      let c = hex(id.data[i + 0]) + hex(id.data[i + 1]) + hex(id.data[i + 2]);
-      const a = id.data[i + 3];
-      if (a === 0) {
-        c = false;
-      } else if (a !== 255) {
-        c += hex(a);
+      if (seen.length !== 4) {
+        console.error(
+          'Tilesheet has more than 4 colors? (or Firefix is corrupting data)',
+          seen,
+          seenAt
+        );
       }
-      if (c && !seen.includes(c)) {
-        seen.push(c);
-        const ii = i / 4;
-        const x = ii % cnv.width;
-        const y = Math.floor(ii / cnv.width);
-        seenAt.push([x, y]);
-      }
-    }
-    if (seen.length !== 4) {
-      console.error(
-        'Tilesheet has more than 4 colors? (or Firefix is corrupting data)',
-        seen,
-        seenAt
-      );
+    } catch (err) {
+      console.error(err);
     }
   }),
   fetchLevel('1-1', 0),
