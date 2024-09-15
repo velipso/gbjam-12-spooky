@@ -14,7 +14,7 @@ html, body {
 }
 
 a {
-  color: #6772a9;
+  color: #7a7a7a;
   text-decoration: none;
 }
 
@@ -68,7 +68,7 @@ a:hover, a:active {
       <strong>X</strong> Jump<br />
       <strong>Enter</strong> Pause
     </p>
-    <p style="margin-top: 16px; border-top: 1px solid #6772a9; padding-top: 16px;">
+    <p style="margin-top: 16px; border-top: 1px solid #7a7a7a; padding-top: 16px;">
       <strong>Music</strong><select id="musicVol">
         <option value="0">Off</option>
         <option value="0.25">25%</option>
@@ -187,7 +187,7 @@ class UserEntity {
   height = 22;
   air = 0;
   facing = 1;
-  attackRect = [0, 5, 11, 11];
+  attackRect = [0, 0, 11, 16];
   attack = 0;
   keys = 0;
   doorAni = 0;
@@ -196,6 +196,7 @@ class UserEntity {
   lastAir0 = 0;
   airAni = 0;
   brokeAni = 0;
+  bounceAni = 0;
 
   think() {
     // swap door background graphic
@@ -319,8 +320,11 @@ class UserEntity {
     } else if (this.dx > 0) {
       this.dx = Math.max(0, this.dx - f);
     }
-    if (this.dy < 0 && !input.jump) {
+    if (this.dy < 0 && !input.jump && this.bounceAni <= 0) {
       this.dy++;
+    }
+    if (this.bounceAni > 0) {
+      this.bounceAni--;
     }
     if (this.air === 0) {
       this.lastAir0 = this.y;
@@ -330,7 +334,7 @@ class UserEntity {
     }
     if (input.hitJump && this.air <= 5) {
       this.y = this.lastAir0;
-      this.bounce(jumpForce);
+      this.bounce(jumpForce, false);
     }
     if (this.player === 'witch') {
       if (this.air > 0 && this.dy >= 0 && this.airCharge > 0) {
@@ -655,24 +659,19 @@ class UserEntity {
   }
 
   attackingRect() {
-    if (this.facing > 0) {
-      return {
-        x: Math.floor(this.x) + this.width + this.attackRect[0],
-        y: Math.floor(this.y) + this.attackRect[1],
-        width: this.attackRect[2],
-        height: this.attackRect[3]
-      };
-    } else {
-      return {
-        x: Math.floor(this.x) - this.attackRect[0] - this.attackRect[2],
-        y: Math.floor(this.y) + this.attackRect[1],
-        width: this.attackRect[2],
-        height: this.attackRect[3]
-      };
-    }
+    // expand upwards slightly for hitting enemies on higher ledges
+    const expand = 3;
+    return {
+      x: this.facing > 0
+        ? Math.floor(this.x) + this.width + this.attackRect[0]
+        : Math.floor(this.x) - this.attackRect[0] - this.attackRect[2],
+      y: Math.floor(this.y) + this.attackRect[1] - expand,
+      width: this.attackRect[2],
+      height: this.attackRect[3] + expand
+    };
   }
 
-  bounce(m = 1) {
+  bounce(m, setBounceAni) {
     let jumpForce = -6;
     if (this.player === 'vampire') {
       this.ddy = 0.06;
@@ -681,6 +680,9 @@ class UserEntity {
     this.fire('bonk-down');
     this.air = 100;
     this.airAni = 1;
+    if (setBounceAni) {
+      this.bounceAni = 6;
+    }
     this.dy = jumpForce * m;
   }
 }
@@ -806,6 +808,110 @@ class SwampMonsterEntity {
   }
 }
 
+class ZombieMonsterEntity {
+  alive = true;
+  x = 385;
+  y = 242;
+  dx = 0;
+  dy = 0;
+  ddx = 0;
+  ddy = 0.2;
+  maxSpeed = [-6.5, 5];
+  mx = 0;
+  my = 0;
+  width = 11;
+  height = 22;
+  air = 0;
+  facing = 1;
+
+  state = 'underground';
+  jumpForce = -3.5;
+  walkFrame = 0;
+  jumpCooloff = 0;
+
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+
+  think() {
+    const mag = (1 - Math.cos(this.walkFrame * Math.PI * 2 / 60)) * 0.5;
+    if (this.state === 'left' || this.state === 'right') {
+      if (this.state === 'left') {
+        this.walkFrame++;
+        this.dx = -mag * 0.4;
+      } else if (this.state === 'right') {
+        this.walkFrame++;
+        this.dx = mag * 0.4;
+      }
+      if (this.walkFrame === 60) {
+        if (playerEntity.x < this.x) {
+          this.state = 'left';
+          this.walkFrame = 0;
+        } else {
+          this.state = 'right';
+          this.walkFrame = 0;
+        }
+      }
+      if (this.jumpCooloff > 0) {
+        this.jumpCooloff--;
+      } else if (
+        playerEntity.distanceFromX(this) >= 17 &&
+        playerEntity.distanceFromX(this) <= 39 &&
+        playerEntity.y + playerEntity.height + 1 < this.y &&
+        this.air <= 0 &&
+        (this.walkFrame <= 5 || this.walkFrame >= 55) &&
+        Math.random() < 0.5
+      ) {
+        this.jumpCooloff = 100;
+        this.state = 'jump';
+        this.dy = this.jumpForce;
+      }
+    } else if (this.state === 'underground') {
+      // check for player trigger
+      if (
+        playerEntity.distanceFromY(this) <= 77 &&
+        playerEntity.distanceFromX(this) <= 55
+      ) {
+        this.state = 'jump';
+        this.dy = this.jumpForce;
+      }
+    }
+  }
+
+  fire(ev) {
+    if (ev === 'bonk-down') {
+      this.air = 0;
+      if (this.state === 'jump') {
+        if (playerEntity.x < this.x) {
+          this.state = 'left';
+          this.walkFrame = 0;
+        } else {
+          this.state = 'right';
+          this.walkFrame = 0;
+        }
+      }
+    } else if (ev === 'bonk-left' && this.state === 'left') {
+      this.state = 'right';
+    } else if (ev === 'bonk-right' && this.state === 'right') {
+      this.state = 'left';
+    }
+  }
+
+  kill() {
+    this.alive = false;
+  }
+
+  draw(cx, cy) {
+    const x = Math.floor(this.x) + cx;
+    const y = Math.floor(this.y) + cy;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#00ff0077';
+    ctx.fillRect(x, y, this.width, this.height);
+    //ctx.fillText(this.state, x, y);
+  }
+}
+
 class WalkMonsterEntity {
   alive = true;
   x = 385;
@@ -864,6 +970,73 @@ class WalkMonsterEntity {
     ctx.fillStyle = '#00ff0077';
     ctx.fillRect(x, y, this.width, this.height);
     //ctx.fillText(this.state, x, y);
+  }
+}
+
+class GhostMonsterEntity {
+  skipPhysics = true;
+  alive = true;
+  x = 385;
+  y = 242;
+  dx = 0;
+  dy = 0;
+  maxSpeed = [-5, 5];
+  mx = 0;
+  my = 0;
+  width = 11;
+  height = 11;
+  air = 0;
+  facing = 0;
+
+  angle = 0;
+  startX = 0;
+  startY = 0;
+  radX = 0;
+  radY = 0;
+
+  constructor(x, y, w, h, radX, radY) {
+    this.x = x;
+    this.y = y;
+    this.width = w;
+    this.height = h;
+    this.startX = x;
+    this.startY = y - radY * 11;
+    this.radX = radX * 11;
+    this.radY = radY * 11;
+  }
+
+  think() {
+    const x = Math.floor(this.startX + this.radX * Math.sin(this.angle));
+    const y = Math.floor(this.startY + this.radY * Math.cos(this.angle));
+    const dx = x - this.x;
+    const dy = y - this.y;
+    if (dx !== 0) {
+      this.dx = dx;
+    }
+    if (dy !== 0) {
+      this.dy = dy;
+    }
+    this.x = x;
+    this.y = y;
+    this.angle -= 0.02;
+    if (this.angle < 0) {
+      this.angle += Math.PI * 2;
+    }
+  }
+
+  fire(ev) {}
+
+  kill() {
+    this.alive = false;
+  }
+
+  draw(cx, cy) {
+    const x = Math.floor(this.x) + cx;
+    const y = Math.floor(this.y) + cy;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#00ff0077';
+    ctx.fillRect(x, y, this.width, this.height);
+    //ctx.fillText('' + this.dy, x, y);
   }
 }
 
@@ -1267,7 +1440,7 @@ function tick() {
           playerEntity.dy - e.dy >= 0
         ) {
           e.kill();
-          playerEntity.bounce();
+          playerEntity.bounce(1, true);
         } else {
           playerEntity.damage();
         }
@@ -1278,6 +1451,7 @@ function tick() {
   // physics
   for (const e of entities) {
     if (!e.alive) continue;
+    if (e.skipPhysics) continue;
     e.dx = Math.max(e.maxSpeed[0], Math.min(e.maxSpeed[1], e.dx + e.ddx));
     e.dy = Math.max(e.maxSpeed[0], Math.min(e.maxSpeed[1], e.dy + e.ddy));
     e.mx += e.dx;
@@ -1489,10 +1663,16 @@ function loadLevelLayer(level) {
             case 52: // D2
               break;
             case 53: // Z1 ZombieMonster
+              f = () => new ZombieMonsterEntity(mx, my - 11);
               break;
             case 54: // Z2
+              break;
             case 55: // G1 GhostMonster
+              f = () => new GhostMonsterEntity(mx, my, 11, 22, 5, 2);
+              break;
             case 56: // G2
+              f = () => new GhostMonsterEntity(mx, my + 3, 11, 11, 3, 0.5);
+              break;
             case 57: // G3
             case 58: // ??
             case 59: // ??
@@ -1714,8 +1894,9 @@ Promise.all([
   }).then(() => {
     checkColors(sprites);
   }),
-  fetchLevel('1-1', 0),
-  fetchLevel('2-1', 1),
+  fetchLevel('1-1', 1),
+  fetchLevel('2-1', 2),
+  fetchLevel('3-1', 0),
 ]).then(start);
 
   </script>
