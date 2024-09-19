@@ -151,6 +151,8 @@ const totalTime = {
   endFrames: 0
 };
 const levels = [false];
+let vclampCamera = false;
+let invincible = false;
 let targetFPS = 60;
 let beatGame = false;
 let currentLevel = 0;
@@ -837,11 +839,13 @@ class ZombieMonsterEntity {
   jumpForce = -3.5;
   walkFrame = 0;
   jumpCooloff = 0;
+  autojump = false;
 
-  constructor(x, y, onKill) {
+  constructor(x, y, onKill, autojump) {
     this.x = x;
     this.y = y;
     this.onKill = onKill || (() => {});
+    this.autojump = autojump;
   }
 
   think() {
@@ -879,10 +883,10 @@ class ZombieMonsterEntity {
       }
     } else if (this.state === 'underground') {
       // check for player trigger
-      if (
+      if (this.autojump || (
         playerEntity.distanceFromY(this) <= 77 &&
         playerEntity.distanceFromX(this) <= 55
-      ) {
+      )) {
         this.state = 'jump';
         this.dy = this.jumpForce;
       }
@@ -1378,6 +1382,7 @@ class BatMonsterEntity {
 }
 
 class HandMonsterEntity {
+  skipPhysics = true;
   alive = true;
   x = 385;
   y = 242;
@@ -1390,16 +1395,31 @@ class HandMonsterEntity {
   height = 32;
   air = 0;
   facing = 0;
+  timer1 = 100;
 
   constructor(x, y, dir) {
     this.x = x;
     this.y = y + 1;
     this.facing = dir;
-    this.dx = this.facing * 1;
+    this.dx = this.facing * 0.8;
     this.ddx = this.facing * 0.05;
   }
 
-  think() {}
+  think() {
+    if (this.skipPhysics) {
+      if (this.timer1 > 0) {
+        this.timer1--;
+        this.y = Math.max(463, Math.min(518, playerEntity.y - 4));
+        if (this.facing > 0) {
+          this.x = cameraX;
+        } else {
+          this.x = cameraX + 160 - this.width + 1;
+        }
+      } else {
+        this.skipPhysics = false;
+      }
+    }
+  }
 
   fire(ev) {
     this.kill();
@@ -1508,6 +1528,9 @@ class BossMonsterEntity {
     switch (this.state) {
       case 'fadeIn': {
         if (this.timer1 > 0) {
+          if (playerEntity.y >= 473) {
+            vclampCamera = true;
+          }
           this.timer1--;
           if (this.timer1 === 120) {
             this.tile = 0;
@@ -1680,7 +1703,7 @@ class BossMonsterEntity {
     entities.push(
       this.baddieType === 0
       ? new DripMonsterEntity(x, this.y - 69, () => this.killedBaddie())
-      : new ZombieMonsterEntity(x, this.y + 74, () => this.killedBaddie())
+      : new ZombieMonsterEntity(x, this.y + 74, () => this.killedBaddie(), true)
     );
   }
 
@@ -1705,6 +1728,7 @@ class BossMonsterEntity {
       this.tile = 5;
       this.timer1 = 600;
       this.state = 'dead';
+      invincible = true;
     } else {
       this.startHands();
     }
@@ -2024,7 +2048,7 @@ function tick() {
         ) {
           e.kill();
           playerEntity.bounce(1, true);
-        } else if (!e.skipHurtPlayer) {
+        } else if (!e.skipHurtPlayer && !invincible) {
           e.fire('damage');
           playerEntity.damage();
         }
@@ -2120,6 +2144,9 @@ function tick() {
     const right = L.verts[vi] * tileSize;
     cameraX = Math.max(left, Math.min(right - 160, cx - 80));
     cameraY = Math.max(0, Math.min(L.height * tileSize - 144, cy - 72));
+    if (vclampCamera) {
+      cameraY = Math.max(396, Math.min(417, cameraY));
+    }
   }
 }
 
@@ -2180,6 +2207,8 @@ function redraw() {
 
 function loadLevel(li) {
   currentLevel = li;
+  vclampCamera = false;
+  invincible = false;
   L = loadLevelLayer(levels[li][0]);
   LO = loadLevelLayer(levels[li][1]);
   playerEntity.x = L.startX;
@@ -2378,6 +2407,7 @@ function onKey(key, down){
       keyboard.start = down;
       return true;
     case 'x':
+    case ' ':
       if (down && !keyboard.jump)
         keyboard.hitJump = true;
       keyboard.jump = down;
@@ -2505,10 +2535,10 @@ Promise.all([
   }).then(() => {
     checkColors(bossimg);
   }),
-  fetchLevel('1-1', 1),
-  fetchLevel('2-1', 2),
-  fetchLevel('3-1', 3),
-  fetchLevel('4-1', 0),
+  fetchLevel('1-1', 0),
+  fetchLevel('2-1', 1),
+  fetchLevel('3-1', 2),
+  fetchLevel('4-1', 3),
 ]).then(start);
 
   </script>
