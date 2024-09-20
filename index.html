@@ -122,7 +122,7 @@ const keyboard = {
   hitSecond: false,
 };
 let enableGamepad = true;
-let debug = true;
+let debug = false;
 const gamepad = {
   jump: false,
   hitJump: false,
@@ -721,10 +721,13 @@ class SwampMonsterEntity {
   jumpFrame = 0;
   jumpForce = -6.5;
   jumpCooloff = 0;
+  walkAni = 0;
+  swampY = 0;
 
   constructor(x, y, r, jf) {
     this.x = x;
     this.y = y;
+    this.swampY = y + 11;
     this.jumpForce = jf;
     this.underwaterRange = [
       this.x - r * 11,
@@ -795,6 +798,7 @@ class SwampMonsterEntity {
         this.state = 'walk-right';
       }
     }
+    this.walkAni += Math.abs(this.dx);
   }
 
   fire(ev) {
@@ -812,10 +816,34 @@ class SwampMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText(this.state, x, y);
+
+    const draw = (ix) => {
+      if (this.dx <= 0) {
+        drawImage(sprites, ix * 32, 96, 32, 32, x - 11, y - 4, 4);
+      } else {
+        drawImage(sprites, ix * 32, 96, 32, 32, x - 10, y - 4, 0);
+      }
+    };
+    const drawHead = (ix) => {
+      const hs = 2;
+      if (this.dx <= 0) {
+        drawImage(sprites, ix * 32, 96, 32, hs + 4, x - 11, y - 4 - hs, 4);
+      } else {
+        drawImage(sprites, ix * 32, 96, 32, hs + 4, x - 10, y - 4 - hs, 0);
+      }
+    };
+    if (this.y < this.swampY) {
+      draw(Math.floor(this.walkAni / 4) % 4);
+    } else {
+      drawHead(Math.floor(this.walkAni / 4) % 4);
+    }
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText(this.state, x, y);
+    }
   }
 }
 
@@ -840,6 +868,7 @@ class ZombieMonsterEntity {
   walkFrame = 0;
   jumpCooloff = 0;
   autojump = false;
+  walkAni = 0;
 
   constructor(x, y, onKill, autojump) {
     this.x = x;
@@ -891,6 +920,7 @@ class ZombieMonsterEntity {
         this.dy = this.jumpForce;
       }
     }
+    this.walkAni += Math.abs(this.dx);
   }
 
   fire(ev) {
@@ -920,10 +950,22 @@ class ZombieMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText(this.state, x, y);
+
+    const draw = (ix) => {
+      if (this.state === 'right') {
+        drawImage(sprites, ix * 32, 128, 32, 32, x - 10, y - 4, 0);
+      } else {
+        drawImage(sprites, ix * 32, 128, 32, 32, x - 12, y - 4, 4);
+      }
+    };
+    draw(Math.floor(this.walkAni / 4) % 3);
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText(this.state, x, y);
+    }
   }
 }
 
@@ -942,6 +984,7 @@ class WalkMonsterEntity {
   height = 11;
   air = 0;
   facing = 0;
+  walkAni = 0;
 
   state = 'sleep';
 
@@ -964,6 +1007,7 @@ class WalkMonsterEntity {
         }
       }
     }
+    this.walkAni += Math.abs(this.dx);
   }
 
   fire(ev) {
@@ -981,10 +1025,22 @@ class WalkMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText(this.state, x, y);
+
+    const draw = (ix) => {
+      if (this.dx <= 0) {
+        drawImage(sprites, (4 + ix) * 32, 96, 32, 32, x - 10, y - 10, 4);
+      } else {
+        drawImage(sprites, (4 + ix) * 32, 96, 32, 32, x - 11, y - 10, 0);
+      }
+    };
+    draw(Math.floor(this.walkAni / 4) % 3);
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText(this.state, x, y);
+    }
   }
 }
 
@@ -1050,10 +1106,25 @@ class GhostMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText('' + this.dy, x, y);
+
+    const drawUFO = (ix) => {
+      drawImage(sprites, (3 + ix) * 32, 128, 32, 32, x - 6, y - 7, 0);
+    };
+    const drawOrb = (ix) => {
+      drawImage(sprites, (7 + ix) * 32, 128, 32, 32, x - 9, y - 10, 0);
+    };
+    if (this.width === 21) {
+      drawUFO(Math.floor(Date.now() / 100) % 4);
+    } else {
+      drawOrb(Math.floor(Date.now() / 100) % 4);
+    }
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText('' + this.dy, x, y);
+    }
   }
 }
 
@@ -1246,6 +1317,7 @@ class DripMonsterEntity {
   height = 22;
   air = 0;
   facing = 0;
+  walkAni = 0;
 
   state = 'sleep';
 
@@ -1266,6 +1338,7 @@ class DripMonsterEntity {
         this.ddy = 0.25;
       }
     }
+    this.walkAni += Math.abs(this.dx);
   }
 
   fire(ev) {
@@ -1290,10 +1363,28 @@ class DripMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText(this.state, x, y);
+
+    const draw = (ix, inv) => {
+      if (this.dx <= 0) {
+        drawImage(sprites, (7 + ix) * 32, 96, 32, 32, x - 2, y - 4, inv ? 6 : 4);
+      } else {
+        drawImage(sprites, (7 + ix) * 32, 96, 32, 32, x - 8, y - 4, inv ? 2 : 0);
+      }
+    };
+    if (this.state === 'sleep') {
+      draw(3);
+    } else if (this.state === 'drop') {
+      draw(3, true);
+    } else {
+      draw(Math.floor(this.walkAni / 4) % 3);
+    }
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText(this.state, x, y);
+    }
   }
 }
 
@@ -2293,10 +2384,10 @@ function loadLevelLayer(level) {
             case 54: // Z2
               break;
             case 55: // G1 GhostMonster
-              f = () => new GhostMonsterEntity(mx, my, 11, 22, 5, 2, 0.02);
+              f = () => new GhostMonsterEntity(mx, my, 21, 21, 5, 2, 0.02);
               break;
             case 56: // G2
-              f = () => new GhostMonsterEntity(mx, my + 3, 11, 11, 3, 0.5, 0.04);
+              f = () => new GhostMonsterEntity(mx, my + 3, 13, 13, 3, 0.5, 0.04);
               break;
             case 57: // G3
               break;
