@@ -33,6 +33,17 @@ a:hover, a:active {
   border-radius: 8px;
 }
 
+#debug {
+  display: block; /* TODO: hide */
+  text-align: center;
+  margin: 10px;
+}
+
+#debug button {
+  font-size: 20px;
+  min-width: 25px;
+}
+
 #controls {
   text-align: left;
   width: 275px;
@@ -61,6 +72,14 @@ a:hover, a:active {
 <body>
   <canvas id="cnv" width="160" height="144"></canvas>
   <div id="controls">
+    <div id="debug">
+      <button onClick="javascript:debug=!debug">Debug</button>
+      <button onClick="javascript:playerEntity.keys = 100;">Keys</button>
+      <button onClick="javascript:loadLevel(levelNames.indexOf('1-1'));">1</button>
+      <button onClick="javascript:loadLevel(levelNames.indexOf('2-1'));">2</button>
+      <button onClick="javascript:loadLevel(levelNames.indexOf('3-1'));">3</button>
+      <button onClick="javascript:loadLevel(levelNames.indexOf('4-1'));">4</button>
+    </div>
     <p style="font-weight: bold; text-decoration: underline; text-align: center;">Controls</p>
     <p>
       <strong>Arrow Keys</strong> Move</br >
@@ -122,7 +141,7 @@ const keyboard = {
   hitSecond: false,
 };
 let enableGamepad = true;
-let debug = false;
+let debug = true;
 const gamepad = {
   jump: false,
   hitJump: false,
@@ -151,6 +170,7 @@ const totalTime = {
   endFrames: 0
 };
 const levels = [false];
+const levelNames = [''];
 let vclampCamera = false;
 let invincible = false;
 let targetFPS = 60;
@@ -369,9 +389,9 @@ class UserEntity {
         if (L.solid[k] >= 20 && L.solid[k] < 32) {
           const door = Math.floor((L.solid[k] - 20) / 2);
           const locked = (L.solid[k] % 2) === 1;
-          if (!locked || this.keys > 0) {
+          if (!locked || (debug || this.keys > 0)) {
             if (locked) {
-              this.keys--;
+              if (!debug) this.keys--;
               const unlockDoors = (lv) => {
                 const xy = lv.doors.find(d => d.door === door);
                 if (xy) {
@@ -1133,6 +1153,8 @@ class HiddenMonsterEntity {
   alive = true;
   x = 385;
   y = 242;
+  homeX = 0;
+  homeY = 0;
   dx = 0;
   dy = 0;
   ddx = 0;
@@ -1144,16 +1166,20 @@ class HiddenMonsterEntity {
   height = 22;
   air = 0;
   facing = 0;
+  walkAni = 0;
 
   state = 'hidden';
 
   constructor(x, y) {
     this.x = x;
     this.y = y;
+    this.homeX = x;
+    this.homeY = y;
   }
 
   think() {
     if (this.state === 'hidden') {
+      // do nothing
     } else if (this.state === 'wait') {
       if (playerEntity.distanceFromX(this) >= 33) {
         this.skipDamage = false;
@@ -1167,7 +1193,10 @@ class HiddenMonsterEntity {
       this.dx = -1;
     } else if (this.state === 'right') {
       this.dx = 1;
+    } else if (this.state === 'dead') {
+      this.dx = 0;
     }
+    this.walkAni += Math.abs(this.dx);
   }
 
   fire(ev) {
@@ -1183,16 +1212,44 @@ class HiddenMonsterEntity {
   }
 
   kill() {
-    this.alive = false;
+    this.skipDamage = true;
+    this.state = 'dead';
   }
 
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = this.skipDamage ? '#00ffff77' : '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText('' + this.dy, x, y);
+    const hx = Math.floor(this.homeX) + cx;
+    const hy = Math.floor(this.homeY) + cy;
+
+    const drawPainting = (ix) => {
+      drawImage(sprites, (6 + ix) * 32, 160, 32, 32, hx - 11, hy - 20, 0);
+    }
+    const drawClown = (ix) => {
+      if (this.dx <= 0) {
+        drawImage(sprites, ix * 32, 192, 32, 32, x - 10, y - 6, 4);
+      } else {
+        drawImage(sprites, ix * 32, 192, 32, 32, x - 10, y - 6, 0);
+      }
+    };
+    const dx = playerEntity.x + playerEntity.width / 2 - this.homeX - this.width / 2;
+    if (this.state === 'hidden' || this.state === 'wait') {
+      if (dx < -11) drawPainting(0);
+      else if (dx <= 11) drawPainting(1);
+      else drawPainting(2);
+    } else {
+      drawPainting(3);
+      if (this.state !== 'dead') {
+        drawClown(Math.floor(this.walkAni / 10) % 4);
+      }
+    }
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = this.skipDamage ? '#00ffff77' : '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText('' + this.dy, x, y);
+    }
   }
 }
 
@@ -1207,8 +1264,8 @@ class PieMonsterEntity {
   maxSpeed = [-5, 5];
   mx = 0;
   my = 0;
-  width = 6;
-  height = 11;
+  width = 8;
+  height = 13;
   air = 0;
   facing = 0;
 
@@ -1235,10 +1292,22 @@ class PieMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText('' + this.dy, x, y);
+
+    const draw = (ix) => {
+      if (this.facing <= 0) {
+        drawImage(sprites, (3 + ix) * 32, 160, 32, 32, x - 12, y - 10, 4);
+      } else {
+        drawImage(sprites, (3 + ix) * 32, 160, 32, 32, x - 12, y - 10, 0);
+      }
+    };
+    draw(Math.floor(Date.now() / 200) % 3);
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText('' + this.dy, x, y);
+    }
   }
 }
 
@@ -1295,10 +1364,28 @@ class ThrowMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText('' + this.dy, x, y);
+
+    const draw = (ix) => {
+      if (this.facing <= 0) {
+        drawImage(sprites, ix * 32, 160, 32, 32, x - 11, y - 5, 4);
+      } else {
+        drawImage(sprites, ix * 32, 160, 32, 32, x - 10, y - 5, 0);
+      }
+    };
+    if (this.timeout > 120) {
+      draw(1);
+    } else if (this.timeout > 67) {
+      draw(2);
+    } else {
+      draw(0);
+    }
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText('' + this.dy, x, y);
+    }
   }
 }
 
@@ -2276,10 +2363,15 @@ function redraw() {
 
   for (const e of entities) {
     if (!e.alive) continue;
-    if (!(e instanceof BossMonsterEntity)) {
+    if (
+      !(e instanceof BossMonsterEntity) &&
+      e !== playerEntity
+    ) {
       e.draw(Math.floor(-cameraX), Math.floor(-cameraY));
     }
   }
+
+  playerEntity.draw(Math.floor(-cameraX), Math.floor(-cameraY));
 
   for (let y = -1; y < yMax; y++) {
     const wy = y - yi;
@@ -2546,11 +2638,13 @@ window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
 window.addEventListener('blur', onBlur);
 
-const fetchLevel = (name, i) =>
-  Promise.all([
+const fetchLevel = (name, i) => {
+  levelNames[i] = name;
+  return Promise.all([
     fetch('./level' + name + 'a.json').then(r => r.json()),
     fetch('./level' + name + 'b.json').then(r => r.json())
   ]).then(r => { levels[i] = r; });
+};
 
 const colorsSeen = [];
 const colorsSeenAt = [];
