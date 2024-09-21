@@ -46,7 +46,7 @@ a:hover, a:active {
 
 #controls {
   text-align: left;
-  width: 275px;
+  width: 300px;
   margin: 16px auto;
   padding: 16px;
   background-color: #3a3a3a;
@@ -78,14 +78,19 @@ a:hover, a:active {
       <button onClick="javascript:loadLevel(levelNames.indexOf('1-1'));">1</button>
       <button onClick="javascript:loadLevel(levelNames.indexOf('2-1'));">2</button>
       <button onClick="javascript:loadLevel(levelNames.indexOf('3-1'));">3</button>
-      <button onClick="javascript:loadLevel(levelNames.indexOf('4-1'));">4</button>
+      <button onClick="javascript:loadLevel(levelNames.indexOf('4-1'));">4</button><br />
+      <input id="c0" type="color" value="#000000" onInput="javascript: refreshPalette();" />
+      <input id="c1" type="color" value="#3a3a3a" onInput="javascript: refreshPalette();" />
+      <input id="c2" type="color" value="#7a7a7a" onInput="javascript: refreshPalette();" />
+      <input id="c3" type="color" value="#c0c0c0" onInput="javascript: refreshPalette();" /><br />
+      <span id="palette" style="font-family: monospace; font-size: 12px;"></span>
     </div>
     <p style="font-weight: bold; text-decoration: underline; text-align: center;">Controls</p>
     <p>
       <strong>Arrow Keys</strong> Move</br >
       <strong>Z</strong> Run / Attack<br />
       <strong>X</strong> Jump<br />
-      <strong>Enter</strong> Pause
+      <strong>Enter</strong> Start / OK
     </p>
     <p style="margin-top: 16px; border-top: 1px solid #7a7a7a; padding-top: 16px;">
       <strong>Music</strong><select id="musicVol">
@@ -141,7 +146,7 @@ const keyboard = {
   hitSecond: false,
 };
 let enableGamepad = true;
-let debug = true;
+let debug = false;
 const gamepad = {
   jump: false,
   hitJump: false,
@@ -179,6 +184,8 @@ let currentLevel = 0;
 let cameraX = 0;
 let cameraY = 0;
 let L, LO;
+let ignoreSpawnerIds = [];
+let gameMode = 'title';
 const lerp = (a, b, t) => a + (b - a) * t;
 
 const entityOverlap = (a, b) => {
@@ -192,6 +199,242 @@ const entityOverlap = (a, b) => {
   const by2 = b.y + b.height - 1;
   return !(bx1 > ax2 || bx2 < ax1 || by1 > ay2 || by2 < ay1);
 };
+
+class ImagesContainer {
+  tiles = null;
+  boss = null;
+  sprites = null;
+  title = null;
+  src = {};
+  clearColor = '#000';
+
+  setPalette(c0, c1, c2, c3) {
+    const rgba = [
+      [0, 0, 0, 0],
+      [(c0 >> 16) & 0xff, (c0 >> 8) & 0xff, c0 & 0xff, 0xff],
+      [(c1 >> 16) & 0xff, (c1 >> 8) & 0xff, c1 & 0xff, 0xff],
+      [(c2 >> 16) & 0xff, (c2 >> 8) & 0xff, c2 & 0xff, 0xff],
+      [(c3 >> 16) & 0xff, (c3 >> 8) & 0xff, c3 & 0xff, 0xff],
+    ];
+    const hex = (v) => '#' + `000000${v.toString(16)}`.substr(-6);
+    this.clearColor = hex(c0);
+    document.getElementById('c0').value = hex(c0);
+    document.getElementById('c1').value = hex(c1);
+    document.getElementById('c2').value = hex(c2);
+    document.getElementById('c3').value = hex(c3);
+    for (const [k, v] of Object.entries(this.src)) {
+      const cnv = document.createElement('canvas');
+      cnv.width = v.width;
+      cnv.height = v.height;
+      const ctx = cnv.getContext('2d');
+      const id = ctx.getImageData(0, 0, cnv.width, cnv.height);
+      for (let y = 0; y < v.height; y++) {
+        for (let x = 0; x < v.width; x++) {
+          const j = x + y * v.width;
+          const k = j * 4;
+          const c = rgba[v.data[j]];
+          id.data[k + 0] = c[0];
+          id.data[k + 1] = c[1];
+          id.data[k + 2] = c[2];
+          id.data[k + 3] = c[3];
+        }
+      }
+      ctx.putImageData(id, 0, 0);
+      this[k] = cnv;
+    }
+  }
+
+  load(key, src) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = src;
+      if (img.complete) {
+        resolve(img);
+      } else {
+        img.onload = () => {
+          resolve(img);
+        };
+      }
+    }).then((img) => {
+      const cnv = document.createElement('canvas');
+      cnv.width = img.width;
+      cnv.height = img.height;
+      const ctx = cnv.getContext('2d');
+      ctx.clearRect(0, 0, cnv.width, cnv.height);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0);
+      const id = ctx.getImageData(0, 0, cnv.width, cnv.height);
+      const data = new Uint8Array(img.width * img.height);
+      for (let y = 0; y < img.height; y++) {
+        for (let x = 0; x < img.width; x++) {
+          const j = x + y * img.width;
+          const k = j * 4;
+          let col = 0;
+          if (id.data[k + 3] > 127) {
+            const c = Math.round((id.data[k] + id.data[k + 1] + id.data[k + 2]) / 3);
+            const cols = [
+              [1, Math.abs(c - 0x00)],
+              [2, Math.abs(c - 0x3a)],
+              [3, Math.abs(c - 0x7a)],
+              [4, Math.abs(c - 0xc0)]
+            ];
+            cols.sort((a, b) => a[1] - b[1]);
+            col = cols[0][0];
+          }
+          data[j] = col;
+        }
+      }
+      this.src[key] = { width: img.width, height: img.height, data };
+    });
+  }
+}
+
+const ic = new ImagesContainer();
+
+function refreshPalette() {
+  const c0 = document.getElementById('c0').value;
+  const c1 = document.getElementById('c1').value;
+  const c2 = document.getElementById('c2').value;
+  const c3 = document.getElementById('c3').value;
+  document.getElementById('palette').innerText = c0 + ' ' + c1 + ' ' + c2 + ' ' + c3;
+  ic.setPalette(
+    parseInt(c0.substr(1), 16),
+    parseInt(c1.substr(1), 16),
+    parseInt(c2.substr(1), 16),
+    parseInt(c3.substr(1), 16)
+  );
+}
+
+class ParticleEntity {
+  skipOverlap = true;
+  alive = true;
+  x = 22;
+  y = 242;
+  dx = 0;
+  dy = 0;
+  ddx = 0;
+  ddy = 0.5;
+  maxSpeed = [-8, 5];
+  mx = 0;
+  my = 0;
+  width = 4;
+  height = 4;
+  facing = 1;
+  frame = 0;
+  odx = 0;
+
+  constructor(x, y, dx, dy) {
+    this.x = x;
+    this.y = y;
+    this.dx = dx;
+    this.dy = dy;
+    this.odx = dx;
+  }
+
+  think() {
+    this.frame++;
+    if (this.frame > 100) {
+      this.alive = false;
+    }
+  }
+
+  fire(ev) {
+    if (ev === 'bonk-down') {
+      this.dx = 0.9 * this.dx;
+    }
+    if (this.dy > 0 && ev === 'bonk-down') {
+      this.dy = -0.9 * this.dy;
+    } else if (this.dy < 0 && ev === 'bonk-up') {
+      this.dy = 0;
+    } else if (
+      (this.odx < 0 && ev === 'bonk-left') ||
+      (this.odx > 0 && ev === 'bonk-right')
+    ) {
+      this.odx = -0.9 * this.odx;
+      this.dx = this.odx;
+    }
+  }
+
+  draw(cx, cy) {
+    const x = Math.floor(this.x) + cx;
+    const y = Math.floor(this.y) + cy;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#f00';
+    ctx.fillRect(x, y, this.width, this.height);
+  }
+}
+
+class ItemEntity {
+  skipDamage = true;
+  skipPhysics = true;
+  alive = true;
+  kind = 'coin';
+  id = -1;
+  x = 22;
+  y = 242;
+  dx = 0;
+  dy = 0;
+  ddx = 0;
+  ddy = 0.5;
+  maxSpeed = [-8, 5];
+  mx = 0;
+  my = 0;
+  width = 11;
+  height = 11;
+  facing = 1;
+  frame = 0;
+  startY = 0;
+
+  constructor(x, y, kind, id) {
+    this.x = x;
+    this.y = y;
+    this.startY = y;
+    this.kind = kind;
+    this.id = id;
+  }
+
+  think() {
+    this.frame++;
+    this.y = Math.round(this.startY - (1 - Math.cos(this.frame * 0.1)) * 1.5);
+  }
+
+  fire(ev) {
+    if (ev === 'touch') {
+      // collect item
+      if (this.kind === 'key') {
+        playerEntity.keys++;
+      } else if (this.kind === 'heart') {
+        playerEntity.hearts++;
+      } else if (this.kind === 'coin') {
+        playerEntity.coins++;
+      }
+      ignoreSpawnerIds.push(this.id);
+      this.alive = false;
+    }
+  }
+
+  draw(cx, cy) {
+    const x = Math.floor(this.x) + cx;
+    const y = Math.floor(this.y) + cy;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#f00';
+    ctx.fillRect(x, y, this.width, this.height);
+    ctx.fillText(this.kind, x, y);
+  }
+}
+
+function spawnParticles(name, entity) {
+  const edx = 'dx' in entity ? entity.dx : 0;
+  const max = Math.max(4, Math.min(16, Math.round(entity.width * entity.height * 0.03)));
+  for (let i = 0; i < max; i++) {
+    const x = entity.x + Math.round(Math.random() * (entity.width - 4));
+    const y = entity.y + Math.round(Math.random() * (entity.height - 4));
+    const ang = Math.random() * 2 * Math.PI;
+    const dx = Math.cos(ang) + edx;
+    const dy = -5 * Math.abs(Math.sin(ang));
+    entities.push(new ParticleEntity(x, y, dx, dy));
+  }
+}
 
 class UserEntity {
   alive = true;
@@ -219,8 +462,43 @@ class UserEntity {
   airAni = 0;
   brokeAni = 0;
   bounceAni = 0;
+  hearts = 3;
+  coins = 0;
+  deathAni = 0;
+  spawnPos = [0, 0];
+
+  respawn() {
+    this.hearts = 3;
+    this.deathAni = 0;
+    this.ddy = 0.5;
+    this.x = this.spawnPos[0];
+    this.y = this.spawnPos[1];
+    this.facing = 1;
+  }
+
+  setSpawn(x, y) {
+    this.x = x;
+    this.y = y;
+    this.spawnPos = [x, y];
+  }
 
   think() {
+    if (this.deathAni > 0) {
+      this.dx = 0;
+      this.dy = 0;
+      this.ddy = 0;
+      this.deathAni--;
+      if (this.deathAni <= 0) {
+        if (currentLevel === 3) { // boss fight
+          loadLevel(3);
+        } else {
+          this.respawn();
+          gameMode = 'choose';
+        }
+      }
+      return;
+    }
+
     // swap door background graphic
     const updateDoorTiles = (dwt) => {
       const update = (lv) => {
@@ -244,8 +522,10 @@ class UserEntity {
         spawnEntities();
         // load player position
         const xy = L.doors.find(d => d.door === this.doorTarget);
-        this.x = xy.x * tileSize;
-        this.y = xy.y * tileSize;
+        this.setSpawn(
+          xy.x * tileSize,
+          xy.y * tileSize
+        );
       } else if (di === 39) {
         this.doorAni = 0;
         updateDoorTiles(2);
@@ -313,12 +593,6 @@ class UserEntity {
           if (isWater(ix, iy)) water = true;
           if (isPushLeft(ix, iy)) push = -1;
           if (isPushRight(ix, iy)) push = 1;
-          if (isKey(ix, iy)) {
-            const k = ix + iy * L.width;
-            L.solid[k] = 0;
-            L.front[k] = 0;
-            this.keys++;
-          }
           if (isEnd(ix, iy)) {
             loadLevel((currentLevel + 1) % levels.length);
           }
@@ -328,9 +602,9 @@ class UserEntity {
 
     let jumpForce = 1;
     if (water) {
-      a *= 0.3;
-      f *= 0.3;
-      jumpForce *= 0.75;
+      a *= 0.5;
+      f *= 0.5;
+      jumpForce *= 0.85;
       this.airCharge = Math.min(this.airCharge, 20);
     }
 
@@ -372,7 +646,7 @@ class UserEntity {
         }
       }
     }
-    if (input.hitStart) {
+    if (debug && input.hitStart) {
       if (this.player === 'witch') {
         this.player = 'wolf';
       } else if (this.player === 'wolf') {
@@ -458,8 +732,10 @@ class UserEntity {
         if (ix < 0 || ix >= L.width) continue;
         let k = ix + iy * L.width;
         let double = false;
+        let spawn = false;
         switch (L.solid[k]) {
           case 7: // break single
+            spawn = true;
             brokeStuff++;
             L.world[k] += 2;
             L.solid[k] = 0;
@@ -490,6 +766,14 @@ class UserEntity {
           L.solid[k + 1] = 0;
           L.solid[k + L.width] = 0;
           L.solid[k + L.width + 1] = 0;
+        }
+        if (spawn || double) {
+          spawnParticles('Block', {
+            x: ix * tileSize,
+            y: iy * tileSize,
+            width: (double ? 2 : 1) * tileSize,
+            height: (double ? 2 : 1) * tileSize
+          });
         }
       }
     }
@@ -526,8 +810,8 @@ class UserEntity {
   }
 
   draw(cx, cy) {
-    const x = Math.floor(this.x) + cx;
-    const y = Math.floor(this.y) + cy;
+    const x = typeof cx === 'number' ? Math.floor(this.x) + cx : 74;
+    const y = typeof cy === 'number' ? Math.floor(this.y) + cy : 61;
 
     const drawDoor = (i) => {
       const xy = L.doors.find(d => d.door === this.doorTarget);
@@ -536,7 +820,7 @@ class UserEntity {
       const dx = (t % 32) * tileSize;
       const dy = Math.floor(t / 32) * tileSize;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(tiles, dx, dy, tileSize, tileSize * 2, x, y, tileSize, tileSize * 2);
+      ctx.drawImage(ic.tiles, dx, dy, tileSize, tileSize * 2, x, y, tileSize, tileSize * 2);
     };
 
     const di = this.doorAni - 1;
@@ -548,16 +832,16 @@ class UserEntity {
       drawDoor(Math.floor((40 - di) / 2));
     }
 
-    const skipIframe = Math.floor(this.iframes / 10) % 2 === 1;
+    const skipIframe = this.deathAni > 0 || Math.floor(this.iframes / 10) % 2 === 1;
 
     switch (this.player) {
       case 'witch': {
         const drawWitch = (ix) => {
           if (skipIframe) return;
           if (this.facing < 0) {
-            drawImage(sprites, ix, 0, 32, 32, x - 11, y - 4, 4);
+            drawImage(ic.sprites, ix, 0, 32, 32, x - 11, y - 4, 4);
           } else {
-            drawImage(sprites, ix, 0, 32, 32, x - 10, y - 4, 0);
+            drawImage(ic.sprites, ix, 0, 32, 32, x - 10, y - 4, 0);
           }
         };
         if (this.air <= 0) {
@@ -582,9 +866,9 @@ class UserEntity {
         const drawWolf = (ix) => {
           if (skipIframe) return;
           if (this.facing < 0) {
-            drawImage(sprites, ix, 64, 32, 32, x - 10, y - 6, 4);
+            drawImage(ic.sprites, ix, 64, 32, 32, x - 10, y - 6, 4);
           } else {
-            drawImage(sprites, ix, 64, 32, 32, x - 11, y - 6, 0);
+            drawImage(ic.sprites, ix, 64, 32, 32, x - 11, y - 6, 0);
           }
         };
         if (this.attacking()) {
@@ -616,9 +900,9 @@ class UserEntity {
         const drawVamp = (ix) => {
           if (skipIframe) return;
           if (this.facing < 0) {
-            drawImage(sprites, ix, 32, 32, 32, x - 10, y - 4, 4);
+            drawImage(ic.sprites, ix, 32, 32, 32, x - 10, y - 4, 4);
           } else {
-            drawImage(sprites, ix, 32, 32, 32, x - 11, y - 4, 0);
+            drawImage(ic.sprites, ix, 32, 32, 32, x - 11, y - 4, 0);
           }
         };
         if (this.air <= 0) {
@@ -673,14 +957,22 @@ class UserEntity {
 
   iframes = 0;
   damage() {
+    if (this.deathAni > 0) {
+      return;
+    }
     if (this.doorAni > 0) {
       return;
     }
     if (this.iframes > 0) {
       return;
     }
-    console.log('TODO: damage');
-    this.iframes = 120;
+    this.hearts--;
+    if (this.hearts <= 0) {
+      this.deathAni = 140;
+      spawnParticles('Player', this);
+    } else {
+      this.iframes = 120;
+    }
   }
 
   attacking() {
@@ -831,6 +1123,7 @@ class SwampMonsterEntity {
 
   kill() {
     this.alive = false;
+    spawnParticles('SwampMonster', this);
   }
 
   draw(cx, cy) {
@@ -839,17 +1132,17 @@ class SwampMonsterEntity {
 
     const draw = (ix) => {
       if (this.dx <= 0) {
-        drawImage(sprites, ix * 32, 96, 32, 32, x - 11, y - 4, 4);
+        drawImage(ic.sprites, ix * 32, 96, 32, 32, x - 11, y - 4, 4);
       } else {
-        drawImage(sprites, ix * 32, 96, 32, 32, x - 10, y - 4, 0);
+        drawImage(ic.sprites, ix * 32, 96, 32, 32, x - 10, y - 4, 0);
       }
     };
     const drawHead = (ix) => {
       const hs = 2;
       if (this.dx <= 0) {
-        drawImage(sprites, ix * 32, 96, 32, hs + 4, x - 11, y - 4 - hs, 4);
+        drawImage(ic.sprites, ix * 32, 96, 32, hs + 4, x - 11, y - 4 - hs, 4);
       } else {
-        drawImage(sprites, ix * 32, 96, 32, hs + 4, x - 10, y - 4 - hs, 0);
+        drawImage(ic.sprites, ix * 32, 96, 32, hs + 4, x - 10, y - 4 - hs, 0);
       }
     };
     if (this.y < this.swampY) {
@@ -965,6 +1258,7 @@ class ZombieMonsterEntity {
   kill() {
     this.onKill();
     this.alive = false;
+    spawnParticles('ZombieMonster', this);
   }
 
   draw(cx, cy) {
@@ -973,9 +1267,9 @@ class ZombieMonsterEntity {
 
     const draw = (ix) => {
       if (this.state === 'right') {
-        drawImage(sprites, ix * 32, 128, 32, 32, x - 10, y - 4, 0);
+        drawImage(ic.sprites, ix * 32, 128, 32, 32, x - 10, y - 4, 0);
       } else {
-        drawImage(sprites, ix * 32, 128, 32, 32, x - 12, y - 4, 4);
+        drawImage(ic.sprites, ix * 32, 128, 32, 32, x - 12, y - 4, 4);
       }
     };
     draw(Math.floor(this.walkAni / 4) % 3);
@@ -1040,6 +1334,7 @@ class WalkMonsterEntity {
 
   kill() {
     this.alive = false;
+    spawnParticles('WalkMonster', this);
   }
 
   draw(cx, cy) {
@@ -1048,9 +1343,9 @@ class WalkMonsterEntity {
 
     const draw = (ix) => {
       if (this.dx <= 0) {
-        drawImage(sprites, (4 + ix) * 32, 96, 32, 32, x - 10, y - 10, 4);
+        drawImage(ic.sprites, (4 + ix) * 32, 96, 32, 32, x - 10, y - 10, 4);
       } else {
-        drawImage(sprites, (4 + ix) * 32, 96, 32, 32, x - 11, y - 10, 0);
+        drawImage(ic.sprites, (4 + ix) * 32, 96, 32, 32, x - 11, y - 10, 0);
       }
     };
     draw(Math.floor(this.walkAni / 4) % 3);
@@ -1121,6 +1416,7 @@ class GhostMonsterEntity {
 
   kill() {
     this.alive = false;
+    spawnParticles('GhostMonster' + this.width, this);
   }
 
   draw(cx, cy) {
@@ -1128,10 +1424,10 @@ class GhostMonsterEntity {
     const y = Math.floor(this.y) + cy;
 
     const drawUFO = (ix) => {
-      drawImage(sprites, (3 + ix) * 32, 128, 32, 32, x - 6, y - 7, 0);
+      drawImage(ic.sprites, (3 + ix) * 32, 128, 32, 32, x - 6, y - 7, 0);
     };
     const drawOrb = (ix) => {
-      drawImage(sprites, (7 + ix) * 32, 128, 32, 32, x - 9, y - 10, 0);
+      drawImage(ic.sprites, (7 + ix) * 32, 128, 32, 32, x - 9, y - 10, 0);
     };
     if (this.width === 21) {
       drawUFO(Math.floor(Date.now() / 100) % 4);
@@ -1212,8 +1508,11 @@ class HiddenMonsterEntity {
   }
 
   kill() {
-    this.skipDamage = true;
-    this.state = 'dead';
+    if (this.state !== 'dead') {
+      this.skipDamage = true;
+      this.state = 'dead';
+      spawnParticles('HiddenMonster', this);
+    }
   }
 
   draw(cx, cy) {
@@ -1223,13 +1522,13 @@ class HiddenMonsterEntity {
     const hy = Math.floor(this.homeY) + cy;
 
     const drawPainting = (ix) => {
-      drawImage(sprites, (6 + ix) * 32, 160, 32, 32, hx - 11, hy - 20, 0);
+      drawImage(ic.sprites, (6 + ix) * 32, 160, 32, 32, hx - 11, hy - 20, 0);
     }
     const drawClown = (ix) => {
       if (this.dx <= 0) {
-        drawImage(sprites, ix * 32, 192, 32, 32, x - 10, y - 6, 4);
+        drawImage(ic.sprites, ix * 32, 192, 32, 32, x - 10, y - 6, 4);
       } else {
-        drawImage(sprites, ix * 32, 192, 32, 32, x - 10, y - 6, 0);
+        drawImage(ic.sprites, ix * 32, 192, 32, 32, x - 10, y - 6, 0);
       }
     };
     const dx = playerEntity.x + playerEntity.width / 2 - this.homeX - this.width / 2;
@@ -1287,6 +1586,7 @@ class PieMonsterEntity {
 
   kill() {
     this.alive = false;
+    spawnParticles('PieMonster', this);
   }
 
   draw(cx, cy) {
@@ -1295,9 +1595,9 @@ class PieMonsterEntity {
 
     const draw = (ix) => {
       if (this.facing <= 0) {
-        drawImage(sprites, (3 + ix) * 32, 160, 32, 32, x - 12, y - 10, 4);
+        drawImage(ic.sprites, (3 + ix) * 32, 160, 32, 32, x - 12, y - 10, 4);
       } else {
-        drawImage(sprites, (3 + ix) * 32, 160, 32, 32, x - 12, y - 10, 0);
+        drawImage(ic.sprites, (3 + ix) * 32, 160, 32, 32, x - 12, y - 10, 0);
       }
     };
     draw(Math.floor(Date.now() / 200) % 3);
@@ -1359,6 +1659,7 @@ class ThrowMonsterEntity {
 
   kill() {
     this.alive = false;
+    spawnParticles('ThrowMonster', this);
   }
 
   draw(cx, cy) {
@@ -1367,9 +1668,9 @@ class ThrowMonsterEntity {
 
     const draw = (ix) => {
       if (this.facing <= 0) {
-        drawImage(sprites, ix * 32, 160, 32, 32, x - 11, y - 5, 4);
+        drawImage(ic.sprites, ix * 32, 160, 32, 32, x - 11, y - 5, 4);
       } else {
-        drawImage(sprites, ix * 32, 160, 32, 32, x - 10, y - 5, 0);
+        drawImage(ic.sprites, ix * 32, 160, 32, 32, x - 10, y - 5, 0);
       }
     };
     if (this.timeout > 120) {
@@ -1445,6 +1746,7 @@ class DripMonsterEntity {
   kill() {
     this.onKill();
     this.alive = false;
+    spawnParticles('DripMonster', this);
   }
 
   draw(cx, cy) {
@@ -1453,9 +1755,9 @@ class DripMonsterEntity {
 
     const draw = (ix, inv) => {
       if (this.dx <= 0) {
-        drawImage(sprites, (7 + ix) * 32, 96, 32, 32, x - 2, y - 4, inv ? 6 : 4);
+        drawImage(ic.sprites, (7 + ix) * 32, 96, 32, 32, x - 2, y - 4, inv ? 6 : 4);
       } else {
-        drawImage(sprites, (7 + ix) * 32, 96, 32, 32, x - 8, y - 4, inv ? 2 : 0);
+        drawImage(ic.sprites, (7 + ix) * 32, 96, 32, 32, x - 8, y - 4, inv ? 2 : 0);
       }
     };
     if (this.state === 'sleep') {
@@ -1547,6 +1849,7 @@ class BatMonsterEntity {
 
   kill() {
     this.alive = false;
+    spawnParticles('BatMonster', this);
   }
 
   draw(cx, cy) {
@@ -1605,6 +1908,7 @@ class HandMonsterEntity {
 
   kill() {
     this.alive = false;
+    spawnParticles('HandMonster', this);
   }
 
   draw(cx, cy) {
@@ -1649,6 +1953,7 @@ class BallMonsterEntity {
 
   kill() {
     this.alive = false;
+    spawnParticles('BallMonster', this);
   }
 
   draw(cx, cy) {
@@ -1919,7 +2224,7 @@ class BossMonsterEntity {
     if (this.tile >= 0) {
       const tx = (this.tile % 3) * 143;
       const ty = Math.floor(this.tile / 3) * 99;
-      ctx.drawImage(bossimg, tx, ty, 143, 99, x - 58, y - 36, 143, 99);
+      ctx.drawImage(ic.boss, tx, ty, 143, 99, x - 58, y - 36, 143, 99);
     }
     if (debug) {
       //ctx.fillStyle = (this.skipHurtPlayer ? '#00ffff' : '#00ff00') +
@@ -1930,12 +2235,6 @@ class BossMonsterEntity {
   }
 }
 
-const tiles = new Image();
-tiles.src = './tiles.png';
-const sprites = new Image();
-sprites.src = './sprites.png';
-const bossimg = new Image();
-bossimg.src = './boss.png';
 const tileSize = 11;
 const enableGamepadSel = document.getElementById('enableGamepad');
 enableGamepadSel.selectedIndex = 0;
@@ -2018,7 +2317,7 @@ function drawTile(d, x, y){
   d = d & 0x3ff;
   const ix = (d & 31) * tileSize;
   const iy = ((d >> 5) & 31) * tileSize;
-  drawImage(tiles, ix, iy, tileSize, tileSize, x, y, flip);
+  drawImage(ic.tiles, ix, iy, tileSize, tileSize, x, y, flip);
 }
 
 function tickStart() {
@@ -2043,19 +2342,22 @@ function tickStart() {
       if (btn(gp, gpButton.second)){ gamepad.second = true; gamepad.hitSecond = !oldGamepad.second; }
       if (btn(gp, gpButton.start )){ gamepad.start  = true; gamepad.hitStart  = !oldGamepad.start;  }
       if (btn(gp, gpButton.up    )){ gamepad.up     = true; gamepad.hitUp     = !oldGamepad.up;     }
-      if (btn(gp, gpButton.right)) gamepad.right = true;
-      if (btn(gp, gpButton.down )) gamepad.down  = true;
-      if (btn(gp, gpButton.left )) gamepad.left  = true;
+      if (btn(gp, gpButton.right )){ gamepad.right  = true; gamepad.hitRight  = !oldGamepad.right   }
+      if (btn(gp, gpButton.down  )){ gamepad.down   = true; gamepad.hitDown   = !oldGamepad.down    }
+      if (btn(gp, gpButton.left  )){ gamepad.left   = true; gamepad.hitLeft   = !oldGamepad.left    }
     }
   } else {
     gamepad.hitJump = false;
     gamepad.hitSecond = false;
     gamepad.hitStart = false;
     gamepad.hitUp = false;
+    gamepad.hitRight = false;
+    gamepad.hitDown = false;
+    gamepad.hitLeft = false;
   }
   for (const k of [
     'jump', 'hitJump', 'second', 'hitSecond', 'start', 'hitStart', 'up', 'down', 'left', 'right',
-    'hitUp'
+    'hitUp', 'hitRight', 'hitDown', 'hitLeft'
   ]) {
     input[k] = keyboard[k] || gamepad[k];
   }
@@ -2066,6 +2368,9 @@ function tickEnd() {
   keyboard.hitJump = false;
   keyboard.hitSecond = false;
   keyboard.hitUp = false;
+  keyboard.hitRight = false;
+  keyboard.hitDown = false;
+  keyboard.hitLeft = false;
   redraw();
 }
 
@@ -2108,14 +2413,6 @@ function isPushRight(tx, ty) {
   }
   const t = L.solid[tx + ty * L.width];
   return t === 15;
-}
-
-function isKey(tx, ty) {
-  if (tx < 0 || tx >= L.width || ty < 0 || ty >= L.height) {
-    return false;
-  }
-  const t = L.solid[tx + ty * L.width];
-  return t === 18;
 }
 
 function isEnd(tx, ty) {
@@ -2196,6 +2493,26 @@ function isSolidLeft(y, height, x, boss) {
 }
 
 function tick() {
+  if (gameMode === 'title') {
+    if (input.hitJump || input.hitSecond || input.hitStart) {
+      gameMode = 'choose';
+    }
+    return;
+  } else if (gameMode === 'choose') {
+    const choices = ['witch', 'vampire', 'wolf'];
+    const i = choices.indexOf(playerEntity.player);
+    if (input.hitLeft && i > 0) {
+      playerEntity.player = choices[i - 1];
+    } else if (input.hitRight && i < choices.length - 1) {
+      playerEntity.player = choices[i + 1];
+    }
+    if (input.hitJump || input.hitSecond || input.hitStart) {
+      gameMode = 'game';
+    }
+    return;
+  }
+  // otherwise, game
+
   // prune dead entities
   for (let i = 0; i < entities.length; i++) {
     if (!entities[i].alive) {
@@ -2208,7 +2525,7 @@ function tick() {
   for (const e of entities) {
     if (!e.alive) continue;
     e.think();
-    if (e !== playerEntity) {
+    if (!e.skipOverlap && e !== playerEntity) {
       if (e.skipDamage) {
         if (entityOverlap(e, playerEntity)) {
           e.fire('touch');
@@ -2330,8 +2647,17 @@ function tick() {
 
 function redraw() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = ic.clearColor;
   ctx.fillRect(0, 0, 160, 144);
+
+  if (gameMode === 'title') {
+    ctx.drawImage(ic.title, 0, 0);
+    return;
+  } else if (gameMode === 'choose') {
+    playerEntity.draw();
+    return;
+  }
+  // otherwise, game
 
   // draw boss underneath
   for (const e of entities) {
@@ -2392,17 +2718,20 @@ function loadLevel(li) {
   currentLevel = li;
   vclampCamera = false;
   invincible = false;
+  ignoreSpawnerIds = [];
   L = loadLevelLayer(levels[li][0]);
   LO = loadLevelLayer(levels[li][1]);
-  playerEntity.x = L.startX;
-  playerEntity.y = L.startY;
+  playerEntity.setSpawn(L.startX, L.startY);
+  playerEntity.respawn();
   spawnEntities();
 }
 
 function spawnEntities() {
   entities = [playerEntity];
   for (const s of L.spawners) {
-    entities.push(s());
+    if (ignoreSpawnerIds.indexOf(s.id) < 0) {
+      entities.push(s.f());
+    }
   }
 }
 
@@ -2416,6 +2745,7 @@ function loadLevelLayer(level) {
   const spawners = [];
   let startX = 0;
   let startY = 0;
+  let itemId = 0;
   const base = level.layers.find(l => l.name === 'base');
   const sold = level.layers.find(l => l.name === 'solid');
   const frnt = level.layers.find(l => l.name === 'front');
@@ -2444,11 +2774,20 @@ function loadLevelLayer(level) {
         if (d >= 20 && d < 32) {
           doors.push({ x: x, y: y, door: Math.floor((d - 20) / 2) });
         }
-        if (d >= 45 && d < 64) {
+        if (d === 16 || d === 18 || (d >= 45 && d < 64)) {
           let mx = x * tileSize;
           let my = y * tileSize;
           let f = false;
+          let id = itemId++;
           switch (d) {
+            case 15:
+            case 16:
+            case 18:
+              f = () => new ItemEntity(mx, my,
+                d === 15 ? 'heart' : d === 16 ? 'coin' : 'key',
+                id
+              );
+              break;
             case 45: // S1 SwampMonster
               f = () => new SwampMonsterEntity(mx, my, 5, -6.5);
               break;
@@ -2500,7 +2839,7 @@ function loadLevelLayer(level) {
           if (!f) {
             console.warn('Missing spawner logic for', d);
           } else {
-            spawners.push(f);
+            spawners.push({ id, f });
           }
           d = 1;
         }
@@ -2538,6 +2877,7 @@ function loadLevelLayer(level) {
 }
 
 function start() {
+  ic.setPalette(0x000000, 0x3a3a3a, 0x7a7a7a, 0xc0c0c0);
   loadLevel(0);
   let frameCount = 0;
   let nextFPS = Date.now() + 1000;
@@ -2581,9 +2921,21 @@ function onKey(key, down){
         keyboard.hitUp = true;
       keyboard.up = down;
       return true;
-    case 'ArrowDown': keyboard.down = down; return true;
-    case 'ArrowLeft': keyboard.left = down; return true;
-    case 'ArrowRight': keyboard.right = down; return true;
+    case 'ArrowDown':
+      if (down && !keyboard.down)
+        keyboard.hitDown = true;
+      keyboard.down = down;
+      return true;
+    case 'ArrowLeft':
+      if (down && !keyboard.left)
+        keyboard.hitLeft = true;
+      keyboard.left = down;
+      return true;
+    case 'ArrowRight':
+      if (down && !keyboard.right)
+        keyboard.hitRight = true;
+      keyboard.right = down;
+      return true;
     case 'Enter':
       if (down && !keyboard.start)
         keyboard.hitStart = true;
@@ -2624,10 +2976,11 @@ function onBlur(){
   keyboard.up = false;
   keyboard.hitUp = false;
   keyboard.down = false;
+  keyboard.hitDown = false;
   keyboard.left = false;
+  keyboard.hitLeft = false;
   keyboard.right = false;
-  keyboard.reset = false;
-  keyboard.hitReset = false;
+  keyboard.hitRight = false;
   keyboard.jump = false;
   keyboard.hitJump = false;
   keyboard.second = false;
@@ -2646,80 +2999,12 @@ const fetchLevel = (name, i) => {
   ]).then(r => { levels[i] = r; });
 };
 
-const colorsSeen = [];
-const colorsSeenAt = [];
-function checkColors(img) {
-  try {
-    // check that tiles is exactly 4 colors
-    const cnv = document.createElement('canvas');
-    cnv.width = img.width;
-    cnv.height = img.height;
-    const ctx = cnv.getContext('2d');
-    ctx.clearRect(0, 0, cnv.width, cnv.height);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(img, 0, 0);
-    const id = ctx.getImageData(0, 0, cnv.width, cnv.height);
-    const hex = (v) => {
-      v = v.toString(16);
-      while (v.length < 2) {
-        v = '0' + v;
-      }
-      return v;
-    };
-    for (let i = 0; i < id.data.length; i += 4) {
-      let c = hex(id.data[i + 0]) + hex(id.data[i + 1]) + hex(id.data[i + 2]);
-      const a = id.data[i + 3];
-      if (a === 0) {
-        c = false;
-      } else if (a !== 255) {
-        c += hex(a);
-      }
-      if (c && !colorsSeen.includes(c)) {
-        colorsSeen.push(c);
-        const ii = i / 4;
-        const x = ii % cnv.width;
-        const y = Math.floor(ii / cnv.width);
-        colorsSeenAt.push([img.src, x, y]);
-      }
-    }
-    if (colorsSeen.length !== 4) {
-      console.error(
-        'Tilesheet has more than 4 colors? (or Firefix is corrupting data)',
-        colorsSeen,
-        colorsSeenAt
-      );
-    }
-  } catch (err) {
-    console.error(err);
-  }
-}
-
 // load everything
 Promise.all([
-  new Promise((resolve) => {
-    if (tiles.complete)
-      resolve();
-    else
-      tiles.onload = resolve;
-  }).then(() => {
-    checkColors(tiles);
-  }),
-  new Promise((resolve) => {
-    if (sprites.complete)
-      resolve();
-    else
-      sprites.onload = resolve;
-  }).then(() => {
-    checkColors(sprites);
-  }),
-  new Promise((resolve) => {
-    if (bossimg.complete)
-      resolve();
-    else
-      bossimg.onload = resolve;
-  }).then(() => {
-    checkColors(bossimg);
-  }),
+  ic.load('tiles', './tiles.png'),
+  ic.load('sprites', './sprites.png'),
+  ic.load('boss', './boss.png'),
+  ic.load('title', './title.png'),
   fetchLevel('1-1', 0),
   fetchLevel('2-1', 1),
   fetchLevel('3-1', 2),
