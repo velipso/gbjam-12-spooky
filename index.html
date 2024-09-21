@@ -87,7 +87,8 @@ a:hover, a:active {
     </div>
     <p style="font-weight: bold; text-decoration: underline; text-align: center;">Controls</p>
     <p>
-      <strong>Arrow Keys</strong> Move</br >
+      <strong>Left / Right</strong> Move</br >
+      <strong>Up</strong> Enter Door</br >
       <strong>Z</strong> Run / Attack<br />
       <strong>X</strong> Jump<br />
       <strong>Enter</strong> Start / OK
@@ -186,6 +187,7 @@ let cameraY = 0;
 let L, LO;
 let ignoreSpawnerIds = [];
 let gameMode = 'title';
+const maxHearts = 3;
 const lerp = (a, b, t) => a + (b - a) * t;
 
 const entityOverlap = (a, b) => {
@@ -384,6 +386,7 @@ class ItemEntity {
   facing = 1;
   frame = 0;
   startY = 0;
+  icon = 0;
 
   constructor(x, y, kind, id) {
     this.x = x;
@@ -391,6 +394,7 @@ class ItemEntity {
     this.startY = y;
     this.kind = kind;
     this.id = id;
+    this.icon = ((x / tileSize) + (y / tileSize)) % 4;
   }
 
   think() {
@@ -404,7 +408,7 @@ class ItemEntity {
       if (this.kind === 'key') {
         playerEntity.keys++;
       } else if (this.kind === 'heart') {
-        playerEntity.hearts++;
+        playerEntity.hearts = Math.min(maxHearts, playerEntity.hearts + 1);
       } else if (this.kind === 'coin') {
         playerEntity.coins++;
       }
@@ -416,10 +420,23 @@ class ItemEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#f00';
-    ctx.fillRect(x, y, this.width, this.height);
-    ctx.fillText(this.kind, x, y);
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#f00';
+      ctx.fillRect(x, y, this.width, this.height);
+      ctx.fillText(this.kind, x, y);
+    }
+
+    if (this.kind === 'coin') {
+      const ix = (this.icon & 1) * 16;
+      const iy = (this.icon >> 1) * 16;
+      drawImage(ic.sprites, ix, iy + 224, 16, 16, x - 2, y - 2, 0);
+    } else if (this.kind === 'heart') {
+      drawImage(ic.sprites, 32, 224, 16, 16, x - 2, y - 2, 0);
+    } else {
+      drawImage(ic.sprites, 64, 224, 32, 32, x - 11, y - 11, 0);
+    }
   }
 }
 
@@ -462,13 +479,15 @@ class UserEntity {
   airAni = 0;
   brokeAni = 0;
   bounceAni = 0;
-  hearts = 3;
+  hearts = maxHearts;
   coins = 0;
   deathAni = 0;
   spawnPos = [0, 0];
+  drawBehind = false;
+  lockedDoor = false;
 
   respawn() {
-    this.hearts = 3;
+    this.hearts = maxHearts;
     this.deathAni = 0;
     this.ddy = 0.5;
     this.x = this.spawnPos[0];
@@ -511,6 +530,7 @@ class UserEntity {
       update(LO);
     };
 
+    this.drawBehind = this.doorAni >= 11 && this.doorAni <= 30;
     if (this.doorAni > 0) {
       this.doorAni++;
       const di = this.doorAni - 2;
@@ -582,6 +602,7 @@ class UserEntity {
     }
 
     let water = false;
+    this.lockedDoor = false;
     let push = 0;
     {
       const sx = Math.floor(this.x / tileSize);
@@ -595,6 +616,12 @@ class UserEntity {
           if (isPushRight(ix, iy)) push = 1;
           if (isEnd(ix, iy)) {
             loadLevel((currentLevel + 1) % levels.length);
+          }
+          const k = ix + iy * L.width;
+          if (L.solid[k] >= 20 && L.solid[k] < 32) {
+            if ((L.solid[k] % 2) === 1) {
+              this.lockedDoor = [ix * tileSize, iy * tileSize];
+            }
           }
         }
       }
@@ -677,6 +704,7 @@ class UserEntity {
                   }
                 }
               };
+              this.lockedDoor = false;
               unlockDoors(L);
               unlockDoors(LO);
             }
@@ -816,7 +844,7 @@ class UserEntity {
     const drawDoor = (i) => {
       const xy = L.doors.find(d => d.door === this.doorTarget);
       const k = xy.x + xy.y * L.width;
-      const t = ((L.world[k] & 0x3ff) + 2) + i;
+      const t = ((L.world[k] & 0x7ff) + 2) + i;
       const dx = (t % 32) * tileSize;
       const dy = Math.floor(t / 32) * tileSize;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -930,6 +958,14 @@ class UserEntity {
       drawDoor(Math.floor((20 - di) / 2));
     } else if (di >= 20 && di < 30) {
       drawDoor(0);
+    }
+
+    if (this.lockedDoor) {
+      drawImage(ic.sprites, 96, 224, 32, 32,
+        cx + Math.round(this.lockedDoor[0]) - 11,
+        cy + Math.round(this.lockedDoor[1] + Math.sin(Date.now() / 100)) - 33,
+        0
+      );
     }
   }
 
@@ -2314,9 +2350,9 @@ function drawImage(img, ix, iy, w, h, x, y, flip) {
 
 function drawTile(d, x, y){
   const flip = (d >> 12) & 7;
-  d = d & 0x3ff;
+  d = d & 0x7ff;
   const ix = (d & 31) * tileSize;
-  const iy = ((d >> 5) & 31) * tileSize;
+  const iy = ((d >> 5) & 63) * tileSize;
   drawImage(ic.tiles, ix, iy, tileSize, tileSize, x, y, flip);
 }
 
@@ -2494,7 +2530,7 @@ function isSolidLeft(y, height, x, boss) {
 
 function tick() {
   if (gameMode === 'title') {
-    if (input.hitJump || input.hitSecond || input.hitStart) {
+    if (input.hitJump || input.hitStart) {
       gameMode = 'choose';
     }
     return;
@@ -2506,7 +2542,7 @@ function tick() {
     } else if (input.hitRight && i < choices.length - 1) {
       playerEntity.player = choices[i + 1];
     }
-    if (input.hitJump || input.hitSecond || input.hitStart) {
+    if (input.hitJump || input.hitStart) {
       gameMode = 'game';
     }
     return;
@@ -2667,6 +2703,10 @@ function redraw() {
     }
   }
 
+  if (playerEntity.drawBehind) {
+    playerEntity.draw(Math.floor(-cameraX), Math.floor(-cameraY));
+  }
+
   const xi = Math.floor(-cameraX / tileSize);
   const xf = Math.floor(-cameraX) - xi * tileSize;
   const yi = Math.floor(-cameraY / tileSize);
@@ -2681,7 +2721,7 @@ function redraw() {
         wx < 0 || wx >= L.width ||
         wy < 0 || wy >= L.height
       ) ? 0 : (debug ? L.solid : L.world)[wx + wy * L.width];
-      const k1 = k & 0x73ff;
+      const k1 = k & 0x77ff;
       if (k1 > 1)
         drawTile(k1, x * tileSize + xf, y * tileSize + yf);
     }
@@ -2697,7 +2737,9 @@ function redraw() {
     }
   }
 
-  playerEntity.draw(Math.floor(-cameraX), Math.floor(-cameraY));
+  if (!playerEntity.drawBehind) {
+    playerEntity.draw(Math.floor(-cameraX), Math.floor(-cameraY));
+  }
 
   for (let y = -1; y < yMax; y++) {
     const wy = y - yi;
@@ -2707,10 +2749,19 @@ function redraw() {
         wx < 0 || wx >= L.width ||
         wy < 0 || wy >= L.height
       ) ? 0 : L.front[wx + wy * L.width];
-      const k1 = k & 0x73ff;
+      const k1 = k & 0x77ff;
       if (k1 > 0)
         drawTile(k1, x * tileSize + xf, y * tileSize + yf);
     }
+  }
+
+  // draw hearts
+  for (let i = 0; i < maxHearts; i++) {
+    drawImage(ic.sprites, playerEntity.hearts > i ? 32 : 48, 240, 16, 16, i * 8, 0, 0);
+  }
+  for (let i = 0; i < 3; i++) {
+    if (playerEntity.keys <= i) break;
+    drawImage(ic.sprites, 74, 232, 16, 16, 145 - i * 10, 1, 0);
   }
 }
 
@@ -2756,7 +2807,7 @@ function loadLevelLayer(level) {
         const flipH = (d & 0x80000000) !== 0;
         const flipV = (d & 0x40000000) !== 0;
         const flipR = (d & 0x20000000) !== 0;
-        d = d < 0 ? d : d & 0x3ff;
+        d = d < 0 ? d : d & 0x7ff;
         d = d |
           (flipH ? 0x4000 : 0) |
           (flipV ? 0x2000 : 0) |
@@ -2765,7 +2816,7 @@ function loadLevelLayer(level) {
       }
 
       {
-        let d = (sold.data[x + y * width] - 1) & 0x3ff;
+        let d = (sold.data[x + y * width] - 1) & 0x7ff;
         if (d === 19) {
           startX = x * tileSize;
           startY = y * tileSize;
@@ -2774,17 +2825,18 @@ function loadLevelLayer(level) {
         if (d >= 20 && d < 32) {
           doors.push({ x: x, y: y, door: Math.floor((d - 20) / 2) });
         }
-        if (d === 16 || d === 18 || (d >= 45 && d < 64)) {
+        if (d === 13 || d === 14 || d === 18 || (d >= 45 && d < 64)) {
           let mx = x * tileSize;
           let my = y * tileSize;
           let f = false;
           let id = itemId++;
+          const dd = d;
           switch (d) {
-            case 15:
-            case 16:
+            case 13:
+            case 14:
             case 18:
               f = () => new ItemEntity(mx, my,
-                d === 15 ? 'heart' : d === 16 ? 'coin' : 'key',
+                dd === 13 ? 'heart' : dd === 14 ? 'coin' : 'key',
                 id
               );
               break;
@@ -2851,7 +2903,7 @@ function loadLevelLayer(level) {
         const flipH = (d & 0x80000000) !== 0;
         const flipV = (d & 0x40000000) !== 0;
         const flipR = (d & 0x20000000) !== 0;
-        d = d < 0 ? d : d & 0x3ff;
+        d = d < 0 ? d : d & 0x7ff;
         d = d |
           (flipH ? 0x4000 : 0) |
           (flipV ? 0x2000 : 0) |
