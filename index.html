@@ -207,6 +207,7 @@ class ImagesContainer {
   boss = null;
   sprites = null;
   title = null;
+  bg = null;
   src = {};
   clearColor = '#000';
 
@@ -324,6 +325,8 @@ class ParticleEntity {
   facing = 1;
   frame = 0;
   odx = 0;
+  tileX = 0;
+  tileY = 0;
 
   constructor(x, y, dx, dy) {
     this.x = x;
@@ -331,6 +334,9 @@ class ParticleEntity {
     this.dx = dx;
     this.dy = dy;
     this.odx = dx;
+    this.tileX = Math.floor(Math.random() * 4);
+    this.tileY = Math.floor(Math.random() * 2);
+    this.tileFlags = Math.floor(Math.random() * 4) * 2;
   }
 
   think() {
@@ -360,9 +366,12 @@ class ParticleEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#f00';
-    ctx.fillRect(x, y, this.width, this.height);
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#f00';
+      ctx.fillRect(x, y, this.width, this.height);
+    }
+    drawImage(ic.sprites, 48 + this.tileX * 4, 224 + this.tileY * 4, 5, 5, x, y, this.tileFlags);
   }
 }
 
@@ -2212,13 +2221,14 @@ class BossMonsterEntity {
   }
 
   spawnBaddie(xf) {
-    let x = Math.floor(lerp(this.x - 91, this.x + 107, xf));
+    let x = Math.floor(lerp(this.x - 91, this.x + 96, xf));
     const minDist = this.baddieType === 0 ? 11 : 22;
     const bw = this.baddieType === 0 ? 22 : 11;
     if (playerEntity.distanceFromX({ x, width: bw }) <= minDist) {
       x = playerEntity.x + playerEntity.width / 2 +
         (Math.random() < 0.5 ? -1 : 1) * (minDist + bw / 2);
     }
+    x = Math.max(this.x - 91, Math.min(this.x + 96, x));
     entities.push(
       this.baddieType === 0
       ? new DripMonsterEntity(x, this.y - 69, () => this.killedBaddie())
@@ -2695,6 +2705,8 @@ function redraw() {
   }
   // otherwise, game
 
+  ctx.drawImage(ic.bg, Math.floor(-cameraX / 2), Math.floor(-cameraY));
+
   // draw boss underneath
   for (const e of entities) {
     if (!e.alive) continue;
@@ -2786,6 +2798,7 @@ function spawnEntities() {
   }
 }
 
+let nextItemId = 0;
 function loadLevelLayer(level) {
   const width = level.width;
   const height = level.height;
@@ -2796,7 +2809,6 @@ function loadLevelLayer(level) {
   const spawners = [];
   let startX = 0;
   let startY = 0;
-  let itemId = 0;
   const base = level.layers.find(l => l.name === 'base');
   const sold = level.layers.find(l => l.name === 'solid');
   const frnt = level.layers.find(l => l.name === 'front');
@@ -2829,7 +2841,7 @@ function loadLevelLayer(level) {
           let mx = x * tileSize;
           let my = y * tileSize;
           let f = false;
-          let id = itemId++;
+          let id = nextItemId++;
           const dd = d;
           switch (d) {
             case 13:
@@ -3057,6 +3069,7 @@ Promise.all([
   ic.load('sprites', './sprites.png'),
   ic.load('boss', './boss.png'),
   ic.load('title', './title.png'),
+  ic.load('bg', './bg.png'),
   fetchLevel('1-1', 0),
   fetchLevel('2-1', 1),
   fetchLevel('3-1', 2),
