@@ -187,6 +187,7 @@ let cameraY = 0;
 let L, LO;
 let ignoreSpawnerIds = [];
 let gameMode = 'title';
+let theEnd = false;
 const maxHearts = 3;
 const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -346,13 +347,14 @@ class ParticleEntity {
     }
   }
 
-  fire(ev) {
+  fire(ev, ov) {
     if (ev === 'bonk-down') {
       this.dx = 0.9 * this.dx;
     }
-    if (this.dy > 0 && ev === 'bonk-down') {
-      this.dy = -0.9 * this.dy;
-    } else if (this.dy < 0 && ev === 'bonk-up') {
+    if (ov > 0 && ev === 'bonk-down') {
+      this.dy = -0.8 * ov;
+      if (Math.abs(this.dy) < 1.5) this.dy = 0;
+    } else if (ov < 0 && ev === 'bonk-up') {
       this.dy = 0;
     } else if (
       (this.odx < 0 && ev === 'bonk-left') ||
@@ -404,14 +406,26 @@ class ItemEntity {
     this.kind = kind;
     this.id = id;
     this.icon = ((x / tileSize) + (y / tileSize)) % 4;
+    this.frame = this.icon * 16;
+  }
+
+  launch(dx, dy) {
+    this.skipPhysics = false;
+    this.dx = dx;
+    this.odx = dx;
+    this.dy = dy;
+    this.icon = Math.floor(Math.random() * 4);
   }
 
   think() {
+    if (!this.skipPhysics) {
+      return;
+    }
     this.frame++;
     this.y = Math.round(this.startY - (1 - Math.cos(this.frame * 0.1)) * 1.5);
   }
 
-  fire(ev) {
+  fire(ev, ov) {
     if (ev === 'touch') {
       // collect item
       if (this.kind === 'key') {
@@ -420,9 +434,29 @@ class ItemEntity {
         playerEntity.hearts = Math.min(maxHearts, playerEntity.hearts + 1);
       } else if (this.kind === 'coin') {
         playerEntity.coins++;
+        playerEntity.score += 5;
       }
-      ignoreSpawnerIds.push(this.id);
+      if (this.id >= 0) {
+        ignoreSpawnerIds.push(this.id);
+      }
       this.alive = false;
+    }
+    if (!this.skipPhysics) {
+      if (ev === 'bonk-down') {
+        this.dx = 0.95 * this.dx;
+      }
+      if (ov > 0 && ev === 'bonk-down') {
+        this.dy = -0.95 * ov;
+        if (Math.abs(this.dy) < 1.5) this.dy = 0;
+      } else if (ov < 0 && ev === 'bonk-up') {
+        this.dy = 0;
+      } else if (
+        (this.odx < 0 && ev === 'bonk-left') ||
+        (this.odx > 0 && ev === 'bonk-right')
+      ) {
+        this.odx = -0.95 * this.odx;
+        this.dx = this.odx;
+      }
     }
   }
 
@@ -494,6 +528,7 @@ class UserEntity {
   spawnPos = [0, 0];
   drawBehind = false;
   lockedDoor = false;
+  score = 0;
 
   respawn() {
     this.hearts = maxHearts;
@@ -518,6 +553,7 @@ class UserEntity {
       this.deathAni--;
       if (this.deathAni <= 0) {
         if (currentLevel === 3) { // boss fight
+          gameMode = 'choose';
           loadLevel(3);
         } else {
           this.respawn();
@@ -624,6 +660,9 @@ class UserEntity {
           if (isPushLeft(ix, iy)) push = -1;
           if (isPushRight(ix, iy)) push = 1;
           if (isEnd(ix, iy)) {
+            if (currentLevel !== 2) {
+              gameMode = 'choose';
+            }
             loadLevel((currentLevel + 1) % levels.length);
           }
           const k = ix + iy * L.width;
@@ -1168,6 +1207,7 @@ class SwampMonsterEntity {
 
   kill() {
     this.alive = false;
+    playerEntity.score += 100;
     spawnParticles('SwampMonster', this);
   }
 
@@ -1303,6 +1343,7 @@ class ZombieMonsterEntity {
   kill() {
     this.onKill();
     this.alive = false;
+    playerEntity.score += 100;
     spawnParticles('ZombieMonster', this);
   }
 
@@ -1379,6 +1420,7 @@ class WalkMonsterEntity {
 
   kill() {
     this.alive = false;
+    playerEntity.score += 20;
     spawnParticles('WalkMonster', this);
   }
 
@@ -1461,6 +1503,7 @@ class GhostMonsterEntity {
 
   kill() {
     this.alive = false;
+    playerEntity.score += 50;
     spawnParticles('GhostMonster' + this.width, this);
   }
 
@@ -1556,6 +1599,7 @@ class HiddenMonsterEntity {
     if (this.state !== 'dead') {
       this.skipDamage = true;
       this.state = 'dead';
+      playerEntity.score += 100;
       spawnParticles('HiddenMonster', this);
     }
   }
@@ -1704,6 +1748,7 @@ class ThrowMonsterEntity {
 
   kill() {
     this.alive = false;
+    playerEntity.score += 100;
     spawnParticles('ThrowMonster', this);
   }
 
@@ -1791,6 +1836,7 @@ class DripMonsterEntity {
   kill() {
     this.onKill();
     this.alive = false;
+    playerEntity.score += 50;
     spawnParticles('DripMonster', this);
   }
 
@@ -1894,6 +1940,7 @@ class BatMonsterEntity {
 
   kill() {
     this.alive = false;
+    playerEntity.score += 50;
     spawnParticles('BatMonster', this);
   }
 
@@ -1959,9 +2006,18 @@ class HandMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
+
+    if (this.facing <= 0) {
+      drawImage(ic.sprites, 0, 256, 12, 34, x - 2, y - 1, 4);
+    } else {
+      drawImage(ic.sprites, 0, 256, 12, 34, x - 1, y - 1, 0);
+    }
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+    }
     //ctx.fillText('' + this.dy, x, y);
   }
 }
@@ -2004,10 +2060,15 @@ class BallMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText('' + this.dy, x, y);
+
+    drawImage(ic.sprites, 16, 256, 13, 13, x - 1, y - 1, 0);
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText('' + this.dy, x, y);
+    }
   }
 }
 
@@ -2041,6 +2102,8 @@ class BossMonsterEntity {
   shotGroups = 0;
   health = 3;
   nextHand = 0;
+  noseAni = 0;
+  candy = 1000;
 
   constructor(x, y) {
     this.x = x + 3;
@@ -2053,6 +2116,9 @@ class BossMonsterEntity {
   }
 
   think() {
+    if (this.isSolid) {
+      this.noseAni++;
+    }
     switch (this.state) {
       case 'fadeIn': {
         if (this.timer1 > 0) {
@@ -2087,6 +2153,9 @@ class BossMonsterEntity {
           this.timer1--;
         } else {
           if (this.shots < 3) {
+            if (this.shots === 0) {
+              this.noseAni = 0;
+            }
             this.tile = 3;
             this.spawnBall(lerp(2, 1, this.hp()));
             this.timer1 = 60;
@@ -2095,6 +2164,7 @@ class BossMonsterEntity {
             this.shots = 0;
             this.timer1 = 180;
             this.shotGroups++;
+            this.noseAni = 0;
             if (this.shotGroups >= 3) {
               this.startFadeOut(120);
             }
@@ -2156,8 +2226,19 @@ class BossMonsterEntity {
       case 'dead': {
         if (this.timer1 > 0) {
           this.timer1--;
+        } else if (this.candy > 0) {
+          this.candy--;
+          if ((this.candy % 10) === 0) {
+            const dir = (this.candy % 20) === 0 ? -1 : 1;
+            const item = new ItemEntity(
+              dir < 0 ? this.x + 118 : this.x - 102,
+              this.y, 'coin', -1);
+            item.launch(dir * lerp(1, 3, Math.random()), lerp(-4, -6, Math.random()));
+            entities.push(item);
+          }
+        } else {
+          theEnd = true;
         }
-        // anything else?
         break;
       }
     }
@@ -2228,7 +2309,7 @@ class BossMonsterEntity {
       x = playerEntity.x + playerEntity.width / 2 +
         (Math.random() < 0.5 ? -1 : 1) * (minDist + bw / 2);
     }
-    x = Math.max(this.x - 91, Math.min(this.x + 96, x));
+    x = Math.max(this.x - 91, Math.min(this.x + 96, Math.floor(x)));
     entities.push(
       this.baddieType === 0
       ? new DripMonsterEntity(x, this.y - 69, () => this.killedBaddie())
@@ -2240,6 +2321,7 @@ class BossMonsterEntity {
     this.skipDamage = false;
     this.skipHurtPlayer = true;
     this.isSolid = true;
+    this.noseAni = 0;
   }
 
   hideNose() {
@@ -2252,10 +2334,11 @@ class BossMonsterEntity {
     if (this.state === 'dead') {
       return;
     }
+    playerEntity.score += 1000;
     this.health--;
     if (this.health <= 0) {
       this.tile = 5;
-      this.timer1 = 600;
+      this.timer1 = 300;
       this.state = 'dead';
       invincible = true;
     } else {
@@ -2271,6 +2354,10 @@ class BossMonsterEntity {
       const tx = (this.tile % 3) * 143;
       const ty = Math.floor(this.tile / 3) * 99;
       ctx.drawImage(ic.boss, tx, ty, 143, 99, x - 58, y - 36, 143, 99);
+      if (this.isSolid) {
+        const t = Math.min(4, Math.floor(this.noseAni / 4));
+        ctx.drawImage(ic.sprites, 192 + 32 * t, 192, 32, 32, x - 2, y - 2, 32, 32);
+      }
     }
     if (debug) {
       //ctx.fillStyle = (this.skipHurtPlayer ? '#00ffff' : '#00ff00') +
@@ -2613,10 +2700,11 @@ function tick() {
         // can we move 1 pixel right?
         if (isSolidRight(e.y, e.height, e.x + e.width - 1, boss)) {
           // hit wall
+          const odx = e.dx;
           e.mx = 0;
           e.dx = 0;
           doneX = true;
-          e.fire('bonk-right');
+          e.fire('bonk-right', odx);
         } else {
           e.x++;
           e.mx--;
@@ -2625,10 +2713,11 @@ function tick() {
         // can we move 1 pixel left?
         if (isSolidLeft(e.y, e.height, e.x, boss)) {
           // hit wall
+          const odx = e.dx;
           e.mx = 0;
           e.dx = 0;
           doneX = true;
-          e.fire('bonk-left');
+          e.fire('bonk-left', odx);
         } else {
           e.x--;
           e.mx++;
@@ -2642,11 +2731,12 @@ function tick() {
         // can we move 1 pixel down?
         if (isSolidDown(e.x, e.width, e.y + e.height - 1)) {
           // hit ground
+          const ody = e.dy;
           e.my = 0;
           e.dy = 0;
           e.air = 0;
           doneY = true;
-          e.fire('bonk-down');
+          e.fire('bonk-down', ody);
         } else {
           e.air++;
           e.y++;
@@ -2771,9 +2861,19 @@ function redraw() {
   for (let i = 0; i < maxHearts; i++) {
     drawImage(ic.sprites, playerEntity.hearts > i ? 32 : 48, 240, 16, 16, i * 8, 0, 0);
   }
+  // draw keys
   for (let i = 0; i < 3; i++) {
     if (playerEntity.keys <= i) break;
     drawImage(ic.sprites, 74, 232, 16, 16, 145 - i * 10, 1, 0);
+  }
+  // draw score
+  const sctxt = `000000${Math.min(999999, playerEntity.score)}`.substr(-6);
+  for (let i = 0; i < sctxt.length; i++) {
+    const dig = sctxt.charCodeAt(i) - '0'.charCodeAt(0);
+    drawImage(ic.sprites, 128 + 8 * dig, 224, 8, 8, 62 + 6 * i, 3, 0);
+  }
+  if (theEnd) {
+    drawImage(ic.sprites, 16, 272, 96, 32, 32, 16, 0);
   }
 }
 
