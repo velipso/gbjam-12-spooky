@@ -537,6 +537,7 @@ class UserEntity {
     this.x = this.spawnPos[0];
     this.y = this.spawnPos[1];
     this.facing = 1;
+    this.iframes = 0;
   }
 
   setSpawn(x, y) {
@@ -1453,6 +1454,8 @@ class GhostMonsterEntity {
   y = 242;
   dx = 0;
   dy = 0;
+  ddx = 0;
+  ddy = 0;
   maxSpeed = [-5, 5];
   mx = 0;
   my = 0;
@@ -1977,6 +1980,8 @@ class HandMonsterEntity {
   y = 242;
   dx = 0;
   dy = 0;
+  ddx = 0;
+  ddy = 0;
   maxSpeed = [-2, 2];
   mx = 0;
   my = 0;
@@ -2000,9 +2005,9 @@ class HandMonsterEntity {
         this.timer1--;
         this.y = Math.max(463, Math.min(518, playerEntity.y - 4));
         if (this.facing > 0) {
-          this.x = cameraX;
+          this.x = Math.floor(cameraX);
         } else {
-          this.x = cameraX + 160 - this.width + 1;
+          this.x = Math.floor(cameraX + 160 - this.width + 1);
         }
       } else {
         this.skipPhysics = false;
@@ -2011,7 +2016,9 @@ class HandMonsterEntity {
   }
 
   fire(ev) {
-    this.kill();
+    if (ev === 'bonk-left' || ev === 'bonk-right' || ev === 'damage') {
+      this.kill();
+    }
   }
 
   kill() {
@@ -2396,6 +2403,7 @@ const sfxVol = document.getElementById('sfxVol');
 sfxVol.selectedIndex = 2;
 
 function mod(a, b) {
+  a = Math.floor(a);
   return a < 0 ? ((a % b) + b) % b : a % b;
 }
 
@@ -2687,14 +2695,33 @@ function tick() {
           e.kill();
         }
       } else if (entityOverlap(e, playerEntity)) {
-        if (playerEntity.y + playerEntity.height / 2 < e.y &&
-          playerEntity.dy - e.dy >= 0
+        if (
+          'lastY' in playerEntity &&
+          'lastY' in e
         ) {
-          e.kill();
-          playerEntity.bounce(1, true);
-        } else if (!e.skipHurtPlayer && !invincible) {
-          e.fire('damage');
-          playerEntity.damage();
+          const feet = playerEntity.y + playerEntity.height - e.y;
+          const air = playerEntity.air;
+          const pdy = playerEntity.y - playerEntity.lastY;
+          const edy = e.y - e.lastY;
+          if (( // if you're moving down and they're moving up or stationary
+            air > 0 &&
+            pdy > 0 &&
+            edy <= 0 &&
+            feet > 0 && feet < 11
+          ) || ( // if you're floating and they're moving up
+            playerEntity.player === 'witch' &&
+            air > 0 &&
+            pdy >= 0 &&
+            edy < 0 &&
+            feet > 0 && feet < 11
+          )) {
+            e.kill();
+            playerEntity.bounce(1, true);
+          } else if (!e.skipHurtPlayer && !invincible) {
+            console.log({ air, pdy, edy, feet });
+            e.fire('damage');
+            playerEntity.damage();
+          }
         }
       }
     }
@@ -2703,6 +2730,10 @@ function tick() {
   // physics
   const bossEntity = entities.find(e => e instanceof BossMonsterEntity);
   for (const e of entities) {
+    e.x = Math.floor(e.x);
+    e.y = Math.floor(e.y);
+    e.lastX = e.x;
+    e.lastY = e.y;
     if (!e.alive) continue;
     if (e.skipPhysics) continue;
     const boss = e === playerEntity ? bossEntity : null;
