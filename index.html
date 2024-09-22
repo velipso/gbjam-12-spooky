@@ -1894,18 +1894,21 @@ class BatMonsterEntity {
   think() {
     const sp = 0.8;
     if (this.state === 'left') {
+      this.facing = -1;
       if (this.dy < 0) {
         this.ddy = 0;
         this.dy = 0;
       }
       this.dx = -sp;
     } else if (this.state === 'right') {
+      this.facing = 1;
       if (this.dy < 0) {
         this.ddy = 0;
         this.dy = 0;
       }
       this.dx = sp;
     } else if (this.state === 'sleep') {
+      this.facing = 0;
       if (playerEntity.y > this.y && playerEntity.distanceFromX(this) < 55) {
         this.ddy = -0.05;
         this.dy = 1.86;
@@ -1933,8 +1936,10 @@ class BatMonsterEntity {
   fire(ev) {
     if (ev === 'bonk-left' && this.state === 'left') {
       this.state = 'wait';
+      this.facing = 1;
     } else if (ev === 'bonk-right' && this.state === 'right') {
       this.state = 'wait';
+      this.facing = -1;
     }
   }
 
@@ -1947,10 +1952,21 @@ class BatMonsterEntity {
   draw(cx, cy) {
     const x = Math.floor(this.x) + cx;
     const y = Math.floor(this.y) + cy;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#00ff0077';
-    ctx.fillRect(x, y, this.width, this.height);
-    //ctx.fillText(this.state, x, y);
+
+    if (this.state === 'sleep') {
+      drawImage(ic.sprites, 160, 192, 32, 32, x - 10, y - 10, 0);
+    } else if (this.facing <= 0) {
+      drawImage(ic.sprites, 128, 192, 32, 32, x - 11, y - 10, 4);
+    } else {
+      drawImage(ic.sprites, 128, 192, 32, 32, x - 10, y - 10, 0);
+    }
+
+    if (debug) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#00ff0077';
+      ctx.fillRect(x, y, this.width, this.height);
+      //ctx.fillText(this.state, x, y);
+    }
   }
 }
 
