@@ -2571,7 +2571,10 @@ function tickStart() {
     jump: gamepad.jump,
     second: gamepad.second,
     start: gamepad.start,
-    up: gamepad.up
+    up: gamepad.up,
+    right: gamepad.right,
+    down: gamepad.down,
+    left: gamepad.left,
   };
   gamepad.jump = false;
   gamepad.second = false;
@@ -2580,6 +2583,13 @@ function tickStart() {
   gamepad.down = false;
   gamepad.left = false;
   gamepad.right = false;
+  gamepad.hitJump = false;
+  gamepad.hitSecond = false;
+  gamepad.hitStart = false;
+  gamepad.hitUp = false;
+  gamepad.hitRight = false;
+  gamepad.hitDown = false;
+  gamepad.hitLeft = false;
   if (enableGamepad) {
     for (const gp of navigator.getGamepads()){
       if (btn(gp, gpButton.jump  )){ gamepad.jump   = true; gamepad.hitJump   = !oldGamepad.jump;   }
@@ -2590,14 +2600,6 @@ function tickStart() {
       if (btn(gp, gpButton.down  )){ gamepad.down   = true; gamepad.hitDown   = !oldGamepad.down    }
       if (btn(gp, gpButton.left  )){ gamepad.left   = true; gamepad.hitLeft   = !oldGamepad.left    }
     }
-  } else {
-    gamepad.hitJump = false;
-    gamepad.hitSecond = false;
-    gamepad.hitStart = false;
-    gamepad.hitUp = false;
-    gamepad.hitRight = false;
-    gamepad.hitDown = false;
-    gamepad.hitLeft = false;
   }
   for (const k of [
     'jump', 'hitJump', 'second', 'hitSecond', 'start', 'hitStart', 'up', 'down', 'left', 'right',
@@ -2737,6 +2739,7 @@ function isSolidLeft(y, height, x, boss) {
 }
 
 let chooseTimer = 0;
+let lastPlayerSelected = -1;
 function tick() {
   if (gameMode === 'title') {
     if (input.hitJump || input.hitStart) {
@@ -2746,6 +2749,20 @@ function tick() {
   } else if (gameMode === 'choose') {
     const choices = ['witch', 'vampire', 'wolf'];
     const i = choices.indexOf(playerEntity.player);
+    if (i !== lastPlayerSelected) {
+      lastPlayerSelected = i;
+      switch (i) {
+        case 0: // witch
+          ic.setPalette(0x202020, 0x5e6745, 0xaeba89, 0xe3eec0);
+          break;
+        case 1: // vampire
+          ic.setPalette(0x2d162c, 0x412752, 0x683a68, 0x9775a6);
+          break;
+        case 2: // wolf
+          ic.setPalette(0x202020, 0x606060, 0x9f9f9f, 0xdfdfdf);
+          break;
+      }
+    }
     if (input.hitLeft && i > 0) {
       sfx.play('select');
       playerEntity.player = choices[i - 1];
