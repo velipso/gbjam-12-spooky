@@ -188,6 +188,7 @@ let L, LO;
 let ignoreSpawnerIds = [];
 let gameMode = 'title';
 let theEnd = false;
+let userHitEnd = false;
 const maxHearts = 3;
 const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -722,6 +723,7 @@ class UserEntity {
             } else {
               sfx.play('fall');
             }
+            userHitEnd = true;
             loadLevel((currentLevel + 1) % levels.length);
           }
           const k = ix + iy * L.width;
@@ -2781,10 +2783,13 @@ function tick() {
       chooseTimer--;
     } else {
       gameMode = 'game';
-      if (currentLevel === 1) {
-        music.play('s1');
-      } else if (currentLevel === 2) {
-        music.play('s2');
+      if (userHitEnd) {
+        userHitEnd = false;
+        if (currentLevel === 1) {
+          music.play('s1');
+        } else if (currentLevel === 2) {
+          music.play('s2');
+        }
       }
     }
     return;
