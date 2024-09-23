@@ -34,7 +34,7 @@ a:hover, a:active {
 }
 
 #debug {
-  display: block; /* TODO: hide */
+  display: none;
   text-align: center;
   margin: 10px;
 }
@@ -191,6 +191,56 @@ let theEnd = false;
 const maxHearts = 3;
 const lerp = (a, b, t) => a + (b - a) * t;
 
+class SoundContainer {
+  sounds = {};
+  volume = {};
+  loop = false;
+
+  setLoop(loop) {
+    this.loop = loop;
+    return this;
+  }
+
+  stop() {
+    for (const [k, v] of Object.entries(this.sounds)) {
+      v.stop();
+    }
+  }
+
+  setVolume(vol) {
+    for (const [k, v] of Object.entries(this.sounds)) {
+      v.volume(vol * this.volume[k]);
+    }
+  }
+
+  play(key) {
+    if (this.loop) {
+      this.stop();
+      this.sounds[key].play();
+    } else {
+      this.sounds[key].stop();
+      this.sounds[key].play();
+    }
+  }
+
+  load(key, file, volume) {
+    return new Promise((resolve) => {
+      this.volume[key] = volume;
+      this.sounds[key] = new Howl({
+        src: [file],
+        loop: this.loop,
+        volume
+      });
+      this.sounds[key].once('load', () => {
+        resolve();
+      });
+    });
+  }
+}
+
+const music = (new SoundContainer()).setLoop(true);
+const sfx = new SoundContainer();
+
 const entityOverlap = (a, b) => {
   const ax1 = a.x;
   const ay1 = a.y;
@@ -208,6 +258,7 @@ class ImagesContainer {
   boss = null;
   sprites = null;
   title = null;
+  costume = null;
   bg = null;
   src = {};
   clearColor = '#000';
@@ -429,10 +480,13 @@ class ItemEntity {
     if (ev === 'touch') {
       // collect item
       if (this.kind === 'key') {
+        sfx.play('key');
         playerEntity.keys++;
       } else if (this.kind === 'heart') {
+        sfx.play('heart');
         playerEntity.hearts = Math.min(maxHearts, playerEntity.hearts + 1);
       } else if (this.kind === 'coin') {
+        sfx.play('coin');
         playerEntity.coins++;
         playerEntity.score += 5;
       }
@@ -663,6 +717,10 @@ class UserEntity {
           if (isEnd(ix, iy)) {
             if (currentLevel !== 2) {
               gameMode = 'choose';
+              music.stop();
+              sfx.play('exit');
+            } else {
+              sfx.play('fall');
             }
             loadLevel((currentLevel + 1) % levels.length);
           }
@@ -709,6 +767,7 @@ class UserEntity {
     }
     if (input.hitJump && this.air <= 5) {
       this.y = this.lastAir0;
+      sfx.play('jump-' + this.player);
       this.bounce(jumpForce, false);
     }
     if (this.player === 'witch') {
@@ -739,6 +798,9 @@ class UserEntity {
         if (L.solid[k] >= 20 && L.solid[k] < 32) {
           const door = Math.floor((L.solid[k] - 20) / 2);
           const locked = (L.solid[k] % 2) === 1;
+          if (locked && this.keys <= 0) {
+            sfx.play('locked');
+          }
           if (!locked || (debug || this.keys > 0)) {
             if (locked) {
               if (!debug) this.keys--;
@@ -756,6 +818,7 @@ class UserEntity {
               this.lockedDoor = false;
               unlockDoors(L);
               unlockDoors(LO);
+              sfx.play('unlock');
             }
             this.doorAni = 1;
             this.doorTarget = door;
@@ -767,12 +830,14 @@ class UserEntity {
             this.my = 0;
             this.attack = 0;
             updateDoorTiles(-2);
+            sfx.play('door');
             return;
           }
         }
       }
     }
     if (this.player === 'wolf' && input.hitSecond && this.attack <= 0) {
+      sfx.play('slash');
       this.attack = 20;
     }
     if (this.attacking()) {
@@ -845,6 +910,7 @@ class UserEntity {
           L.solid[k + L.width + 1] = 0;
         }
         if (spawn || double) {
+          sfx.play('break');
           spawnParticles('Block', {
             x: ix * tileSize,
             y: iy * tileSize,
@@ -857,9 +923,12 @@ class UserEntity {
     return brokeStuff;
   }
 
-  fire(ev, boss) {
+  fire(ev, boss, oair) {
     switch (ev) {
       case 'bonk-down': {
+        if (oair > 0) {
+          sfx.play('land2');
+        }
         if (this.player === 'witch') {
           this.air = 0;
           this.airCharge = 35;
@@ -1053,9 +1122,11 @@ class UserEntity {
     }
     this.hearts--;
     if (this.hearts <= 0) {
+      sfx.play('death');
       this.deathAni = 140;
       spawnParticles('Player', this);
     } else {
+      sfx.play('hurt');
       this.iframes = 120;
     }
   }
@@ -1083,7 +1154,7 @@ class UserEntity {
       this.ddy = 0.06;
       jumpForce = -3.98;
     }
-    this.fire('bonk-down');
+    this.fire('bonk-down', 0, this.air);
     this.air = 100;
     this.airAni = 1;
     if (setBounceAni) {
@@ -1165,6 +1236,7 @@ class SwampMonsterEntity {
           this.jumpFrame = 0;
           this.dx = 0;
           this.dy = this.jumpForce;
+          sfx.play('jump2');
           this.jumpCooloff = 100;
           if (playerEntity.distanceFromY(this) <= Math.abs(this.jumpForce) * 8.46) {
             this.state = 'underwater-jump';
@@ -1308,6 +1380,7 @@ class ZombieMonsterEntity {
         this.jumpCooloff = 100;
         this.state = 'jump';
         this.dy = this.jumpForce;
+        sfx.play('jump2');
       }
     } else if (this.state === 'underground') {
       // check for player trigger
@@ -1317,6 +1390,7 @@ class ZombieMonsterEntity {
       )) {
         this.state = 'jump';
         this.dy = this.jumpForce;
+        sfx.play('jump2');
       }
     }
     this.walkAni += Math.abs(this.dx);
@@ -1570,6 +1644,7 @@ class HiddenMonsterEntity {
     } else if (this.state === 'wait') {
       if (playerEntity.distanceFromX(this) >= 33) {
         this.skipDamage = false;
+        sfx.play('painting');
         if (playerEntity.x < this.x) {
           this.state = 'left';
         } else {
@@ -1678,6 +1753,7 @@ class PieMonsterEntity {
 
   kill() {
     this.alive = false;
+    sfx.play('piedie');
     spawnParticles('PieMonster', this);
   }
 
@@ -1738,6 +1814,7 @@ class ThrowMonsterEntity {
         this.timeout--;
       } else {
         this.timeout = 140 + Math.floor(80 * Math.random());
+        sfx.play('throw');
         entities.push(new PieMonsterEntity(
           this.x + (this.facing > 0 ? 11 - 6 : 0),
           this.y + 6,
@@ -1828,6 +1905,7 @@ class DripMonsterEntity {
     } else if (ev === 'bonk-right' && this.state === 'right') {
       this.state = 'left';
     } else if (this.state === 'drop' && ev === 'bonk-down') {
+      sfx.play('land');
       if (playerEntity.x < this.x) {
         this.state = 'left';
       } else {
@@ -1915,6 +1993,7 @@ class BatMonsterEntity {
       if (playerEntity.y > this.y && playerEntity.distanceFromX(this) < 55) {
         this.ddy = -0.05;
         this.dy = 1.86;
+        sfx.play('bat');
         if (playerEntity.x < this.x) {
           this.state = 'left';
           this.dx = -sp;
@@ -2010,6 +2089,7 @@ class HandMonsterEntity {
           this.x = Math.floor(cameraX + 160 - this.width + 1);
         }
       } else {
+        sfx.play('swipe');
         this.skipPhysics = false;
       }
     }
@@ -2077,6 +2157,7 @@ class BallMonsterEntity {
 
   kill() {
     this.alive = false;
+    sfx.play('piedie');
     spawnParticles('BallMonster', this);
   }
 
@@ -2259,8 +2340,9 @@ class BossMonsterEntity {
             item.launch(dir * lerp(1, 3, Math.random()), lerp(-4, -6, Math.random()));
             entities.push(item);
           }
-        } else {
+        } else if (!theEnd) {
           theEnd = true;
+          music.play('s1');
         }
         break;
       }
@@ -2296,6 +2378,7 @@ class BossMonsterEntity {
 
   spawnBall(speed) {
     this.shots++;
+    sfx.play('spit');
     entities.push(new BallMonsterEntity(this.x + 8, this.y + 33, speed));
   }
 
@@ -2364,8 +2447,12 @@ class BossMonsterEntity {
       this.timer1 = 300;
       this.state = 'dead';
       invincible = true;
+      sfx.play('bossdie');
+      sfx.play('bossdie2');
+      music.stop();
     } else {
       this.startHands();
+      sfx.play('bosshit');
     }
   }
 
@@ -2649,6 +2736,7 @@ function isSolidLeft(y, height, x, boss) {
   return false;
 }
 
+let chooseTimer = 0;
 function tick() {
   if (gameMode === 'title') {
     if (input.hitJump || input.hitStart) {
@@ -2659,12 +2747,28 @@ function tick() {
     const choices = ['witch', 'vampire', 'wolf'];
     const i = choices.indexOf(playerEntity.player);
     if (input.hitLeft && i > 0) {
+      sfx.play('select');
       playerEntity.player = choices[i - 1];
     } else if (input.hitRight && i < choices.length - 1) {
+      sfx.play('select');
       playerEntity.player = choices[i + 1];
     }
     if (input.hitJump || input.hitStart) {
+      gameMode = 'choose-wait';
+      chooseTimer = 60;
+      sfx.play('start');
+    }
+    return;
+  } else if (gameMode === 'choose-wait') {
+    if (chooseTimer > 0) {
+      chooseTimer--;
+    } else {
       gameMode = 'game';
+      if (currentLevel === 1) {
+        music.play('s1');
+      } else if (currentLevel === 2) {
+        music.play('s2');
+      }
     }
     return;
   }
@@ -2692,6 +2796,9 @@ function tick() {
           entityOverlap(e, playerEntity) ||
           entityOverlap(e, playerEntity.attackingRect())
         ) {
+          if (!(e instanceof BossMonsterEntity)) {
+            sfx.play('die');
+          }
           e.kill();
         }
       } else if (entityOverlap(e, playerEntity)) {
@@ -2715,6 +2822,9 @@ function tick() {
             edy < 0 &&
             feet > 0 && feet < 11
           )) {
+            if (!(e instanceof BossMonsterEntity)) {
+              sfx.play('die');
+            }
             e.kill();
             playerEntity.bounce(1, true);
           } else if (!e.skipHurtPlayer && !invincible) {
@@ -2779,11 +2889,12 @@ function tick() {
         if (isSolidDown(e.x, e.width, e.y + e.height - 1)) {
           // hit ground
           const ody = e.dy;
+          const oair = e.air;
           e.my = 0;
           e.dy = 0;
           e.air = 0;
           doneY = true;
-          e.fire('bonk-down', ody);
+          e.fire('bonk-down', ody, oair);
         } else {
           e.air++;
           e.y++;
@@ -2808,7 +2919,7 @@ function tick() {
 
       if (doneX && doneY) break;
     }
-    if (e.dy >= 0 && isSolidDown(e.x, e.width, e.y + e.height - 1)) e.fire('bonk-down');
+    if (e.dy >= 0 && isSolidDown(e.x, e.width, e.y + e.height - 1)) e.fire('bonk-down', e.dy, e.air);
   }
 
   // camera
@@ -2836,8 +2947,47 @@ function redraw() {
   if (gameMode === 'title') {
     ctx.drawImage(ic.title, 0, 0);
     return;
-  } else if (gameMode === 'choose') {
-    playerEntity.draw();
+  } else if (gameMode === 'choose' || gameMode === 'choose-wait') {
+    ctx.drawImage(ic.costume, 0, 0);
+    ctx.drawImage(ic.sprites, 128, 240, 32, 32,
+      playerEntity.player === 'witch'
+      ? 73 - 33
+      : playerEntity.player === 'vampire'
+      ? 73
+      : 73 + 33,
+      91,
+      32, 32
+    );
+
+    {
+      const drawWitch = (ix) => {
+        drawImage(ic.sprites, ix, 0, 32, 32, 32, 110, 0);
+      };
+      const frame = playerEntity.player === 'witch'
+        ? Math.floor(Date.now() / 100) % 4
+        : 0;
+      drawWitch(frame === 0 ? 32 : frame === 3 ? 96 : 64);
+    }
+    {
+      const drawWolf = (ix) => {
+        drawImage(ic.sprites, ix, 64, 32, 32, 97, 108, 0);
+      };
+      const frame = playerEntity.player === 'wolf'
+        ? Math.floor(Date.now() / 100) % 4
+        : 0;
+      drawWolf(frame === 0 ? 32 : frame === 3 ? 96 : 64);
+    }
+    {
+      const drawVamp = (ix) => {
+        drawImage(ic.sprites, ix, 32, 32, 32, 63, 110, 0);
+      };
+      const frame = Math.floor(Date.now() / 100) % 2
+      drawVamp(
+        playerEntity.player === 'vampire' ? (
+          frame === 0 ? 32 : 64
+        ) : 0
+      );
+    }
     return;
   }
   // otherwise, game
@@ -3088,6 +3238,13 @@ function loadLevelLayer(level) {
 }
 
 function start() {
+  {
+    const m = document.getElementById('musicVol')
+    music.setVolume(parseFloat(m.options[m.selectedIndex].value));
+    const s = document.getElementById('sfxVol')
+    sfx.setVolume(parseFloat(s.options[s.selectedIndex].value));
+  }
+  music.play('s2');
   ic.setPalette(0x000000, 0x3a3a3a, 0x7a7a7a, 0xc0c0c0);
   loadLevel(0);
   let frameCount = 0;
@@ -3202,6 +3359,16 @@ window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
 window.addEventListener('blur', onBlur);
 
+document.getElementById('musicVol').addEventListener('input', function(){
+  const v = parseFloat(this.options[this.selectedIndex].value);
+  music.setVolume(v);
+});
+
+document.getElementById('sfxVol').addEventListener('input', function(){
+  const v = parseFloat(this.options[this.selectedIndex].value);
+  sfx.setVolume(v);
+});
+
 const fetchLevel = (name, i) => {
   levelNames[i] = name;
   return Promise.all([
@@ -3216,7 +3383,40 @@ Promise.all([
   ic.load('sprites', './sprites.png'),
   ic.load('boss', './boss.png'),
   ic.load('title', './title.png'),
+  ic.load('costume', './costume.png'),
   ic.load('bg', './bg.png'),
+  music.load('s1', './song1-master.mp3', 1),
+  music.load('s2', './song2-master.mp3', 1),
+  sfx.load('jump-witch', './sfx-jump-witch.wav', 0.7),
+  sfx.load('jump-vampire', './sfx-jump-vampire.wav', 0.6),
+  sfx.load('jump-wolf', './sfx-jump-wolf.wav', 1),
+  sfx.load('slash', './sfx-slash.wav', 1),
+  sfx.load('break', './sfx-break.wav', 0.5),
+  sfx.load('die', './sfx-die.wav', 1),
+  sfx.load('hurt', './sfx-hurt.wav', 1),
+  sfx.load('death', './sfx-death.wav', 1),
+  sfx.load('coin', './sfx-coin.wav', 1),
+  sfx.load('key', './sfx-key.wav', 1),
+  sfx.load('heart', './sfx-heart.wav', 0.7),
+  sfx.load('door', './sfx-door.wav', 1),
+  sfx.load('exit', './sfx-exit.wav', 1),
+  sfx.load('jump2', './sfx-jump2.wav', 0.8),
+  sfx.load('land', './sfx-land.wav', 1),
+  sfx.load('bat', './sfx-bat.wav', 1),
+  sfx.load('land2', './sfx-land2.wav', 0.5),
+  sfx.load('unlock', './sfx-unlock.wav', 1),
+  sfx.load('locked', './sfx-locked.wav', 1),
+  sfx.load('piedie', './sfx-piedie.wav', 1),
+  sfx.load('throw', './sfx-throw.wav', 1),
+  sfx.load('painting', './sfx-painting.wav', 1),
+  sfx.load('fall', './sfx-fall.wav', 1),
+  sfx.load('spit', './sfx-spit.wav', 1),
+  sfx.load('swipe', './sfx-swipe.wav', 1),
+  sfx.load('bossdie', './sfx-bossdie.wav', 1),
+  sfx.load('bossdie2', './sfx-bossdie2.wav', 1),
+  sfx.load('bosshit', './sfx-bosshit.wav', 1),
+  sfx.load('select', './sfx-select.wav', 1),
+  sfx.load('start', './sfx-start.wav', 1),
   fetchLevel('1-1', 0),
   fetchLevel('2-1', 1),
   fetchLevel('3-1', 2),
